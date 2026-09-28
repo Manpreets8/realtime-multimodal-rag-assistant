@@ -1,0 +1,120 @@
+name: rag-assistant
+
+# The whole application:   docker compose up -d --build        -> http://localhost:8080
+# Only the databases (for running the backend/frontend locally):   docker compose up -d postgres redis
+#
+# Settings and API keys come from .env (see .env.example). The values under `environment`
+# below override it with what is specific to the containers (service hostnames, paths).
+
+x-backend: &backend
+  build: ./backend
+  image: rag-assistant-backend
+  restart: unless-stopped
+  env_file:
+    - path: .env
+      required: false
+  environment: &backend-env
+    DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-rag}:${POSTGRES_PASSWORD:-rag}@postgres:5432/${POSTGRES_DB:-rag_assistant}
+    REDIS_URL: redis://redis:6379/0
+    UPLOAD_DIR: /data/uploads
+    MODEL_CACHE_DIR: /models
+    # The browser reaches the app through the web container, so that is the only origin.
+    CORS_ORIGINS: ${PUBLIC_ORIGIN:-http://localhost:8080}
+    LOG_JSON: "true"
+  volumes:
+    - uploads:/data/uploads   # written by the API, read by the worker
+    - models:/models          # local models, downloaded once and shared
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-rag}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rag}
+      POSTGRES_DB: ${POSTGRES_DB:-rag_assistant}
+    ports:
+      # Published for local development (tests, running the backend on the host).
+      # Host port 5433 avoids clashing with other local Postgres instances.
+      - "${POSTGRES_HOST_PORT:-5433}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      # Over TCP: on a fresh volume the image first runs a temporary server on the Unix socket
+      # only; checking the socket would report "ready" just before that server shuts down.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:8-alpine
+    restart: unless-stopped
+    # AOF persistence: queued ingestion jobs survive a Redis restart.
+    # volatile-lru: under memory pressure only keys with a TTL (caches, rate-limit windows)
+    # are evicted, never the job stream or locks.
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "volatile-lru"]
+    ports:
+      # Published for local development; host port 6380 avoids clashing with other Redis instances.
+      - "${REDIS_HOST_PORT:-6380}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Applies database migrations, then exits. The API and worker start only after it succeeds.
+  migrate:
+    <<: *backend
+    restart: "no"
+    command: ["alembic", "upgrade", "head"]
+    volumes: []
+
+  api:
+    <<: *backend
+    environment:
+      <<: *backend-env
+      # Only the web container can reach the API (its port is not published), so trusting
+      # X-Forwarded-For from any peer on this network is safe.
+      FORWARDED_ALLOW_IPS: "*"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  # Processes uploaded documents. Scale with: docker compose up -d --scale worker=3
+  worker:
+    <<: *backend
+    command: ["python", "-m", "app.workers.ingestion_worker"]
+    healthcheck:
+      disable: true
+    stop_grace_period: 90s  # let a document in progress finish (the worker waits up to 60 s)
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  web:
+    build: ./frontend
+    image: rag-assistant-web
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-8080}:8080"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  redis_data:
+  uploads:
+  models:

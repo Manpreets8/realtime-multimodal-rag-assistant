@@ -1,0 +1,19 @@
+NORTHWIND LABS IT SECURITY POLICY
+
+Passwords and sign-in
+Passwords must be at least 14 characters long and must not be reused across services. Use the company password manager, Keeper, to generate and store them. Multi-factor authentication (MFA) is mandatory for email, VPN and all production systems.
+
+Devices
+Company laptops must have full-disk encryption enabled, and screens must lock after 5 minutes of inactivity. A lost or stolen device must be reported to the IT Service Desk within 24 hours. Only software from the approved catalogue may be installed; requests for other software go through the IT Service Desk.
+
+Networks
+Use the company VPN whenever you work on public Wi-Fi, for example in a cafe, hotel or airport.
+
+Phishing
+Forward suspicious emails to phishing@northwind.example and do not click the links in them. The security team replies within one working day.
+
+Data classification
+Data is classified into four levels: Public, Internal, Confidential and Restricted. Restricted data, such as customer payment details, must never be stored on personal devices.
+
+Security incidents
+Security incidents are ranked SEV1 to SEV4. A SEV1 incident must be acknowledged by the on-call engineer within 15 minutes; a SEV2 within one hour. SEV3 and SEV4 incidents are handled during business hours.

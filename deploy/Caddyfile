@@ -1,0 +1,14 @@
+# HTTPS entry point (docker-compose.prod.yml). Caddy obtains and renews the certificate for
+# $DOMAIN automatically; "localhost" gets a certificate from Caddy's own local CA instead.
+{$DOMAIN} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		-Server
+	}
+
+	# Everything, including the chat WebSocket, goes to the web container. Caddy sets
+	# X-Forwarded-For to the connecting client and ignores any value the client sent.
+	reverse_proxy web:8080
+}

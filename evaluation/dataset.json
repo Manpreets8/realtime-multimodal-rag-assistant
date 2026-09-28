@@ -1,0 +1,308 @@
+{
+  "name": "northwind-policies",
+  "version": 1,
+  "description": "Questions about the Northwind Labs policy corpus in evaluation/corpus. Relevance is labelled with evidence snippets: a retrieved chunk is relevant when it comes from the named document and contains the evidence text (case- and whitespace-insensitive), so labels survive changes to chunking or the embedding model. expected_facts lists facts a correct answer must state; each fact is a list of accepted phrasings.",
+  "corpus": "corpus",
+  "questions": [
+    {
+      "id": "q01",
+      "category": "factual",
+      "question": "How many days of paid annual leave do full-time employees get?",
+      "expected_answer": "Full-time employees receive 20 days of paid annual leave per calendar year.",
+      "expected_facts": [["20", "twenty"]],
+      "relevant": [{"document": "employee_handbook.pdf", "evidence": "20 days of paid annual leave"}]
+    },
+    {
+      "id": "q02",
+      "category": "factual",
+      "question": "What is the leave policy?",
+      "expected_answer": "Full-time employees get 20 days of paid annual leave per year (pro-rated for part-time staff); up to 5 unused days can be carried over and must be used by 31 March.",
+      "expected_facts": [["20", "twenty"], ["5", "five"]],
+      "relevant": [{"document": "employee_handbook.pdf", "evidence": "20 days of paid annual leave"}]
+    },
+    {
+      "id": "q03",
+      "category": "factual",
+      "question": "How many unused leave days can be carried over, and until when must they be used?",
+      "expected_answer": "Up to 5 unused days can be carried over, and they must be used by 31 March.",
+      "expected_facts": [["5", "five"], ["31 march", "march 31"]],
+      "relevant": [{"document": "employee_handbook.pdf", "evidence": "Up to 5 unused days may be carried over"}]
+    },
+    {
+      "id": "q04",
+      "category": "factual",
+      "question": "When is a doctor's note required for sick leave?",
+      "expected_answer": "For absences of more than three consecutive working days.",
+      "expected_facts": [["three", "3"]],
+      "relevant": [{"document": "employee_handbook.pdf", "evidence": "more than three consecutive working days"}]
+    },
+    {
+      "id": "q05",
+      "category": "factual",
+      "question": "How long is parental leave for the primary caregiver?",
+      "expected_answer": "16 weeks of fully paid parental leave.",
+      "expected_facts": [["16 weeks", "sixteen weeks"]],
+      "relevant": [{"document": "employee_handbook.pdf", "evidence": "16 weeks of fully paid parental leave"}]
+    },
+    {
+      "id": "q06",
+      "category": "factual",
+      "question": "What are the core collaboration hours?",
+      "expected_answer": "10:00 to 16:00 local time.",
+      "expected_facts": [["10:00", "10 am", "10am", "10 a.m."], ["16:00", "4 pm", "4pm", "4 p.m."]],
+      "relevant": [{"document": "employee_handbook.pdf", "evidence": "Core collaboration hours are 10:00 to 16:00"}]
+    },
+    {
+      "id": "q07",
+      "category": "factual",
+      "question": "What is the hotel cost limit per night in London?",
+      "expected_answer": "$275 per night (London is one of the higher-cap cities).",
+      "expected_facts": [["275"]],
+      "relevant": [{"document": "expense_policy.md", "evidence": "the cap is $275 per night"}]
+    },
+    {
+      "id": "q08",
+      "category": "factual",
+      "question": "What is the daily meal allowance for international travel?",
+      "expected_answer": "$80 per day.",
+      "expected_facts": [["80"]],
+      "relevant": [{"document": "expense_policy.md", "evidence": "$80 per day for international travel"}]
+    },
+    {
+      "id": "q09",
+      "category": "factual",
+      "question": "Which tool should I use to book flights and hotels?",
+      "expected_answer": "TripDesk, the company travel portal.",
+      "expected_facts": [["tripdesk"]],
+      "relevant": [{"document": "expense_policy.md", "evidence": "booked through TripDesk"}]
+    },
+    {
+      "id": "q10",
+      "category": "factual",
+      "question": "How long do I have to submit an expense report?",
+      "expected_answer": "Within 30 days of the expense; expenses submitted after 90 days are not reimbursed.",
+      "expected_facts": [["30 days", "thirty days"]],
+      "relevant": [{"document": "expense_policy.md", "evidence": "within 30 days of the expense"}]
+    },
+    {
+      "id": "q11",
+      "category": "factual",
+      "question": "What is the minimum password length?",
+      "expected_answer": "At least 14 characters.",
+      "expected_facts": [["14", "fourteen"]],
+      "relevant": [{"document": "it_security.txt", "evidence": "at least 14 characters"}]
+    },
+    {
+      "id": "q12",
+      "category": "factual",
+      "question": "Where should I forward a phishing email?",
+      "expected_answer": "To phishing@northwind.example, without clicking its links.",
+      "expected_facts": [["phishing@northwind.example"]],
+      "relevant": [{"document": "it_security.txt", "evidence": "phishing@northwind.example"}]
+    },
+    {
+      "id": "q13",
+      "category": "factual",
+      "question": "How quickly must a SEV1 incident be acknowledged?",
+      "expected_answer": "Within 15 minutes, by the on-call engineer.",
+      "expected_facts": [["15 minutes", "fifteen minutes"]],
+      "relevant": [{"document": "it_security.txt", "evidence": "within 15 minutes"}]
+    },
+    {
+      "id": "q14",
+      "category": "factual",
+      "question": "How big is the annual learning budget?",
+      "expected_answer": "$1,500 per employee per year, for courses, books and conferences.",
+      "expected_facts": [["1,500", "1500"]],
+      "relevant": [{"document": "benefits_guide.docx", "evidence": "annual learning budget of $1,500"}]
+    },
+    {
+      "id": "q15",
+      "category": "factual",
+      "question": "When does health insurance coverage start?",
+      "expected_answer": "On the first day of the month after your start date.",
+      "expected_facts": [["first day of the month"]],
+      "relevant": [{"document": "benefits_guide.docx", "evidence": "first day of the month after your start date"}]
+    },
+    {
+      "id": "q16",
+      "category": "factual",
+      "question": "How much does Northwind match for retirement contributions?",
+      "expected_answer": "Up to 4% of salary, vesting immediately.",
+      "expected_facts": [["4%", "4 percent", "four percent", "4 per cent"]],
+      "relevant": [{"document": "benefits_guide.docx", "evidence": "up to 4% of salary"}]
+    },
+    {
+      "id": "q17",
+      "category": "paraphrase",
+      "question": "How much vacation time do I get each year?",
+      "expected_answer": "20 days of paid annual leave per year for full-time employees.",
+      "expected_facts": [["20", "twenty"]],
+      "relevant": [{"document": "employee_handbook.pdf", "evidence": "20 days of paid annual leave"}]
+    },
+    {
+      "id": "q18",
+      "category": "paraphrase",
+      "question": "Am I allowed to work from home?",
+      "expected_answer": "Yes, up to three days per week with your manager's approval (not during the first 90 days).",
+      "expected_facts": [["three days", "3 days"]],
+      "relevant": [{"document": "employee_handbook.pdf", "evidence": "up to three days per week"}]
+    },
+    {
+      "id": "q19",
+      "category": "paraphrase",
+      "question": "I only joined last month. Can I already work remotely?",
+      "expected_answer": "No. Remote work is not available during the first 90 days (the probation period).",
+      "expected_facts": [["90 days", "ninety days", "probation"]],
+      "relevant": [{"document": "employee_handbook.pdf", "evidence": "not available during the first 90 days"}]
+    },
+    {
+      "id": "q20",
+      "category": "paraphrase",
+      "question": "What should I do if my laptop gets stolen?",
+      "expected_answer": "Report it to the IT Service Desk within 24 hours.",
+      "expected_facts": [["24 hours", "twenty-four hours"]],
+      "relevant": [{"document": "it_security.txt", "evidence": "reported to the IT Service Desk within 24 hours"}]
+    },
+    {
+      "id": "q21",
+      "category": "paraphrase",
+      "question": "Is there any money for a desk chair for my home setup?",
+      "expected_answer": "Yes, new employees get a one-time $500 home office stipend.",
+      "expected_facts": [["500"]],
+      "relevant": [{"document": "benefits_guide.docx", "evidence": "home office stipend of $500"}]
+    },
+    {
+      "id": "q22",
+      "category": "paraphrase",
+      "question": "Will the company pay for my gym membership?",
+      "expected_answer": "Yes, through the wellness allowance of $50 per month.",
+      "expected_facts": [["50"]],
+      "relevant": [{"document": "benefits_guide.docx", "evidence": "wellness allowance of $50 per month"}]
+    },
+    {
+      "id": "q23",
+      "category": "paraphrase",
+      "question": "Can I claim a glass of wine at dinner on a business trip?",
+      "expected_answer": "No, alcohol is not reimbursable.",
+      "expected_facts": [["not reimbursable", "not reimbursed", "not be reimbursed", "cannot", "can't", "isn't reimbursable", "not covered"]],
+      "relevant": [{"document": "expense_policy.md", "evidence": "Alcohol is not reimbursable"}]
+    },
+    {
+      "id": "q24",
+      "category": "keyword",
+      "question": "What is Keeper?",
+      "expected_answer": "The company password manager, used to generate and store passwords.",
+      "expected_facts": [["password manager"]],
+      "relevant": [{"document": "it_security.txt", "evidence": "company password manager, Keeper"}]
+    },
+    {
+      "id": "q25",
+      "category": "keyword",
+      "question": "What is the EthicsLine?",
+      "expected_answer": "A channel for reporting concerns anonymously (ethics.northwind.example).",
+      "expected_facts": [["anonym"]],
+      "relevant": [{"document": "employee_handbook.pdf", "evidence": "anonymously through the EthicsLine"}]
+    },
+    {
+      "id": "q26",
+      "category": "keyword",
+      "question": "What is the response time for a SEV2?",
+      "expected_answer": "A SEV2 incident must be acknowledged within one hour.",
+      "expected_facts": [["one hour", "1 hour"]],
+      "relevant": [{"document": "it_security.txt", "evidence": "a SEV2 within one hour"}]
+    },
+    {
+      "id": "q27",
+      "category": "multi_hop",
+      "question": "I have an 8-hour flight to London. Which class can I book and what is my hotel limit?",
+      "expected_answer": "Business class is allowed for flights of 6 hours or more with Vice President approval, and the London hotel cap is $275 per night.",
+      "expected_facts": [["business"], ["275"], ["vice president", "vp"]],
+      "relevant": [
+        {"document": "expense_policy.md", "evidence": "Business class is allowed for flights of 6 hours or more"},
+        {"document": "expense_policy.md", "evidence": "the cap is $275 per night"}
+      ]
+    },
+    {
+      "id": "q28",
+      "category": "multi_hop",
+      "question": "How many days of paid annual leave and paid sick leave do full-time employees get per year?",
+      "expected_answer": "20 days of paid annual leave and 10 days of paid sick leave.",
+      "expected_facts": [["20", "twenty"], ["10", "ten"]],
+      "relevant": [
+        {"document": "employee_handbook.pdf", "evidence": "20 days of paid annual leave"},
+        {"document": "employee_handbook.pdf", "evidence": "10 days of paid sick leave"}
+      ]
+    },
+    {
+      "id": "q29",
+      "category": "multi_hop",
+      "question": "What are the four data classification levels, and where must Restricted data never be stored?",
+      "expected_answer": "Public, Internal, Confidential and Restricted; Restricted data must never be stored on personal devices.",
+      "expected_facts": [["public"], ["internal"], ["confidential"], ["personal device"]],
+      "relevant": [
+        {"document": "it_security.txt", "evidence": "Public, Internal, Confidential and Restricted"},
+        {"document": "it_security.txt", "evidence": "never be stored on personal devices"}
+      ]
+    },
+    {
+      "id": "q30",
+      "category": "multi_hop",
+      "question": "Which approvals do I need for a business-class flight, and who approves a $5,000 software purchase?",
+      "expected_answer": "Business class needs Vice President approval (flights of 6 hours or more); software is bought centrally through the IT Service Desk, and purchases between $1,000 and $10,000 also need the Finance budget owner's approval.",
+      "expected_facts": [["vice president", "vp"], ["it service desk", "budget owner"]],
+      "relevant": [
+        {"document": "expense_policy.md", "evidence": "with approval from a Vice President"},
+        {"document": "procurement_policy.md", "evidence": "Purchases between $1,000 and $10,000"}
+      ]
+    },
+    {
+      "id": "q31",
+      "category": "unanswerable",
+      "question": "What is the stock option vesting schedule?",
+      "expected_answer": "Not covered by the documents (only retirement matching contributions, which vest immediately, are mentioned).",
+      "expected_facts": [],
+      "relevant": []
+    },
+    {
+      "id": "q32",
+      "category": "unanswerable",
+      "question": "Who is the CEO of Northwind Labs?",
+      "expected_answer": "Not covered by the documents.",
+      "expected_facts": [],
+      "relevant": []
+    },
+    {
+      "id": "q33",
+      "category": "unanswerable",
+      "question": "Are dogs allowed in the office?",
+      "expected_answer": "Not covered by the documents.",
+      "expected_facts": [],
+      "relevant": []
+    },
+    {
+      "id": "q34",
+      "category": "unanswerable",
+      "question": "How many days of bereavement leave do employees get?",
+      "expected_answer": "Not covered by the documents (annual, sick and parental leave are, bereavement leave is not).",
+      "expected_facts": [],
+      "relevant": []
+    },
+    {
+      "id": "q35",
+      "category": "unanswerable",
+      "question": "What is the reimbursement rate for electric scooter rentals?",
+      "expected_answer": "Not covered by the documents.",
+      "expected_facts": [],
+      "relevant": []
+    },
+    {
+      "id": "q36",
+      "category": "unanswerable",
+      "question": "What is the dress code?",
+      "expected_answer": "Not covered by the documents.",
+      "expected_facts": [],
+      "relevant": []
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+# Only app/, alembic/, alembic.ini and requirements.txt are needed in the image.
+.venv/
+.model_cache/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+tests/
+.env
+.env.*

@@ -1,0 +1,43 @@
+[project]
+name = "rag-assistant-backend"
+version = "0.1.0"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+markers = [
+    "integration: requires PostgreSQL and Redis (docker compose up -d postgres redis)",
+    "model: loads the real local embedding model (downloads ~65 MB on first run)",
+]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+extend-exclude = ["alembic/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "ASYNC", "S", "SIM", "RUF"]
+ignore = ["B008"]  # FastAPI's Depends() in defaults is idiomatic
+
+[tool.ruff.lint.isort]
+# The local alembic/ migrations folder would otherwise make ruff treat it as first-party.
+known-third-party = ["alembic"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106"]  # asserts and fixture passwords are expected in tests
+# conftest must set DATABASE_URL before importing the app (engine is created at import).
+"tests/conftest.py" = ["S101", "S105", "E402"]
+
+[tool.coverage.run]
+source = ["app"]
+branch = true
+# SQLAlchemy's asyncio layer runs code in greenlets; without this, lines after awaits are missed.
+concurrency = ["greenlet", "thread"]
+
+[tool.coverage.report]
+skip_covered = true
+show_missing = true
+exclude_also = ['if __name__ == .__main__.:', 'if TYPE_CHECKING:', '\.\.\.$']

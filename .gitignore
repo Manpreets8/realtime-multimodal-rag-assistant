@@ -1,0 +1,39 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Node
+node_modules/
+dist/
+coverage/
+*.local
+
+# Uploaded user files (keep the folder)
+documents/*
+!documents/.gitkeep
+
+# Evaluation: per-run outputs and working files (baseline reports in evaluation/results/ are kept)
+evaluation/results/runs/
+evaluation/.data/
+
+# Editors / OS
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+
+# Downloaded embedding models
+backend/.model_cache/
