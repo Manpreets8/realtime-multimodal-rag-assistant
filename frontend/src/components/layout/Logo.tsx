@@ -10,7 +10,7 @@ export function Logo({ inverted = false }: { inverted?: boolean }) {
           <path d="M12 12l8-4.5M12 12v9M12 12L4 7.5" strokeLinejoin="round" />
         </svg>
       </span>
-      <span className={`text-sm font-semibold tracking-tight ${inverted ? 'text-white' : ''}`}>RAG Assistant</span>
+      <span className={`text-sm font-semibold tracking-tight ${inverted ? 'text-white' : ''}`}>Mindora AI</span>
     </span>
   )
 }
