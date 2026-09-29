@@ -4,3 +4,4 @@ pytest-asyncio==1.4.0
 ruff==0.16.9
 pytest-cov==7.1.0
 pip-audit==2.10.1
+aiosmtpd==1.4.6

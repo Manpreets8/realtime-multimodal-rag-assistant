@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Request, Response, status
+from fastapi import APIRouter, BackgroundTasks, Request, Response, status
 
 from app.api.deps import CurrentToken, CurrentUser, DbSession
 from app.core import rate_limit
@@ -6,7 +6,7 @@ from app.core.rate_limit import Scope
 from app.core.security import create_access_token
 from app.models import User
 from app.schemas.auth import LoginRequest, RegisterRequest, TokenResponse, UserRead
-from app.services import auth_service
+from app.services import auth_service, email_service
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -25,9 +25,13 @@ def _token_response(user: User) -> TokenResponse:
     summary="Create an account and return an access token",
     responses={409: {"description": "Email already registered"}, 429: {"description": "Too many sign-ups"}},
 )
-async def register(data: RegisterRequest, db: DbSession, request: Request) -> TokenResponse:
+async def register(
+    data: RegisterRequest, db: DbSession, request: Request, background_tasks: BackgroundTasks
+) -> TokenResponse:
     await rate_limit.enforce(Scope.REGISTER, rate_limit.client_address(request))
     user = await auth_service.register_user(db, data)
+    # Sent after the response: the mail server's speed or availability never affects sign-up.
+    background_tasks.add_task(email_service.send_welcome_email, user.id, user.email, user.full_name)
     return _token_response(user)
 
 

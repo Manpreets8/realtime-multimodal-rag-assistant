@@ -204,6 +204,18 @@ class Settings(BaseSettings):
     # Images from earlier turns kept in context for follow-ups ("what about the second section?").
     max_history_images: int = Field(default=4, ge=0, le=20)
 
+    # --- Email (welcome email on sign-up) -------------------------------------
+    smtp_host: str = ""  # empty disables email
+    smtp_port: int = Field(default=587, ge=1, le=65535)
+    smtp_username: str = ""
+    smtp_password: SecretStr | None = None
+    # starttls: port 587 (upgrade to TLS after connecting); ssl: port 465; none: local test servers only
+    smtp_security: Literal["starttls", "ssl", "none"] = "starttls"
+    email_from: str = ""  # e.g. "Mindora AI <you@gmail.com>"; empty -> SMTP_USERNAME
+    smtp_timeout_seconds: float = Field(default=20.0, gt=0)
+    # Where the app is reached from a user's browser; used for links in emails.
+    app_public_url: str = "http://localhost:8080"
+
     @field_validator("cors_origins", mode="before")
     @classmethod
     def _split_cors_origins(cls, value: object) -> object:
@@ -212,7 +224,9 @@ class Settings(BaseSettings):
             return [origin.strip() for origin in value.split(",") if origin.strip()]
         return value
 
-    @field_validator("llm_api_key", "embedding_api_key", "stt_api_key", "tts_api_key", mode="before")
+    @field_validator(
+        "llm_api_key", "embedding_api_key", "stt_api_key", "tts_api_key", "smtp_password", mode="before"
+    )
     @classmethod
     def _empty_secret_is_none(cls, value: object) -> object:
         # `LLM_API_KEY=` in .env means "not configured", not an empty key.
@@ -266,6 +280,8 @@ class Settings(BaseSettings):
             raise ValueError("RERANK_TOP_K must not exceed TOP_K")
         if self.rerank_top_k > self.rerank_candidates:
             raise ValueError("RERANK_TOP_K must not exceed RERANK_CANDIDATES")
+        if self.email_enabled and not self.email_sender:
+            raise ValueError("Set EMAIL_FROM (or SMTP_USERNAME) when SMTP_HOST is set")
         if self.environment is Environment.PRODUCTION:
             secret = self.jwt_secret.get_secret_value()
             if secret in _INSECURE_JWT_SECRETS or len(secret) < 32:
@@ -279,6 +295,14 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.environment is Environment.PRODUCTION
+
+    @property
+    def email_enabled(self) -> bool:
+        return bool(self.smtp_host.strip())
+
+    @property
+    def email_sender(self) -> str:
+        return self.email_from.strip() or self.smtp_username.strip()
 
 
 _RATE = re.compile(r"^\s*(\d+)\s*/\s*(\d*)\s*([smhd])\s*$")

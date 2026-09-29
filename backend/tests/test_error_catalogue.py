@@ -239,10 +239,14 @@ def quiet_models(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(main, "get_tts_provider", lambda: None)
 
 
-async def test_startup_and_shutdown(quiet_models: None, caplog: pytest.LogCaptureFixture) -> None:
+async def test_startup_and_shutdown(
+    quiet_models: None, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.core.config import get_settings
     from app.main import create_app
     from app.workers.job_queue import JobQueue
 
+    monkeypatch.setattr(get_settings(), "llm_api_key", None)  # independent of the developer's .env
     caplog.set_level(logging.INFO)
     application = create_app()
 

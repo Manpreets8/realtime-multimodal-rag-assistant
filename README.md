@@ -45,7 +45,7 @@ What makes it more than a demo:
 
 | Area | What you get |
 |---|---|
-| **Accounts** | Registration, login, logout with server-side token revocation. Argon2 password hashing. Every resource is private to its owner |
+| **Accounts** | Registration, login, logout with server-side token revocation. Argon2 password hashing. A welcome email on sign-up (any SMTP provider). Every resource is private to its owner |
 | **Knowledge bases** | Create, rename, delete. Upload PDF, DOCX, TXT and MD (validated by content, 25 MB). Download, re-process, live ingestion progress |
 | **Ingestion** | Text extraction with page and section tracking, cleaning, structure-aware chunking, local embeddings (or Voyage AI), stored in pgvector. Runs in a separate worker process via Redis |
 | **Retrieval** | Hybrid search: pgvector HNSW plus PostgreSQL full text, fused with reciprocal rank fusion, then cross-encoder reranking. A search tab shows scores and timings |
@@ -162,6 +162,7 @@ All settings live in `.env` (template: [.env.example](.env.example)). They are v
 | `INGESTION_WORKERS` | 1 | Concurrent documents per worker process |
 | `RATE_LIMIT_CHAT` … `RATE_LIMIT_LOGIN` | 20/1m … 10/15m | Rate limits (`<count>/<window>`) |
 | `WEB_PORT`, `DOMAIN` | 8080, (none) | Docker web port; production domain for HTTPS |
+| `SMTP_HOST`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `EMAIL_FROM` | (none) | Welcome email on sign-up; empty `SMTP_HOST` turns email off. Gmail needs an App Password (see `.env.example`) |
 
 Every other setting (timeouts, caches, audio and image limits, history length, maintenance) is documented in `.env.example` and [config.py](backend/app/core/config.py).
 

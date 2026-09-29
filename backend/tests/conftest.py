@@ -143,6 +143,12 @@ def tts_provider(monkeypatch: pytest.MonkeyPatch) -> ScriptedTTS:
     return instance
 
 
+@pytest.fixture(autouse=True)
+def no_real_email(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No test ever emails a real mail server, even when SMTP is configured in .env."""
+    monkeypatch.setattr(get_settings(), "smtp_host", "")
+
+
 @pytest.fixture
 def ingestion_queue() -> RecordingQueue:
     return RecordingQueue()
