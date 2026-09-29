@@ -104,9 +104,14 @@ async def test_pdf_is_extracted_chunked_embedded_and_stored(
 
 
 async def test_vectors_and_full_text_index_are_queryable(
-    client: AsyncClient, alice: dict, kb_id: str, db: AsyncSession, embedder: HashingEmbeddingProvider
+    client: AsyncClient,
+    alice: dict,
+    kb_id: str,
+    db: AsyncSession,
+    embedder: HashingEmbeddingProvider,
+    tmp_path: Path,
 ) -> None:
-    document = await upload(client, alice, kb_id, "policy.docx", docx_bytes(Path(__file__).parent / ".."))
+    document = await upload(client, alice, kb_id, "policy.docx", docx_bytes(tmp_path))
     await process_document(uuid.UUID(document["id"]))
 
     query = await embedder.embed_query("How much annual paid leave do employees receive?")
