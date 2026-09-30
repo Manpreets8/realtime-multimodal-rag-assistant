@@ -6,8 +6,9 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.llm import claude
-from app.llm.claude import LLMNotConfiguredError, LLMTimeoutError
+from app.llm import factory as llm_factory
+from app.llm.base import LLMNotConfiguredError, LLMTimeoutError, TextPart
+from app.llm.base import Message as LLMMessage
 from app.models import Conversation, Message
 from app.rag.prompts import GENERAL_SYSTEM_PROMPT, GROUNDED_SYSTEM_PROMPT
 from app.services.ingestion_service import process_document
@@ -99,7 +100,7 @@ async def test_follow_up_is_rewritten_for_search_and_answered_with_history(
 
     # Search used the rewritten standalone query...
     [rewrite] = llm.rewrite_calls
-    assert "Latest message: Can it be carried over?" in rewrite["messages"][0]["content"]
+    assert "Latest message: Can it be carried over?" in rewrite["messages"][0].text
     assert second["assistant_message"]["retrieval_query"] == "annual leave unused days carry over"
     assert second["assistant_message"]["retrieval"]["rewritten"] is True
     assert "rewrite" in second["assistant_message"]["timings_ms"]
@@ -108,10 +109,10 @@ async def test_follow_up_is_rewritten_for_search_and_answered_with_history(
     assert answer_call["system"] == GROUNDED_SYSTEM_PROMPT
     history, current = answer_call["messages"][:-1], answer_call["messages"][-1]
     assert history == [
-        {"role": "user", "content": "How much annual leave do employees receive?"},
-        {"role": "assistant", "content": "Employees receive 18 days."},
+        LLMMessage.user("How much annual leave do employees receive?"),
+        LLMMessage.assistant("Employees receive 18 days."),
     ]
-    assert current["content"][-1] == {"type": "text", "text": "Can it be carried over?"}
+    assert current.parts[-1] == TextPart("Can it be carried over?")
     assert second["conversation"]["message_count"] == 4
 
 
@@ -126,7 +127,7 @@ async def test_general_chat_without_a_knowledge_base(
     assert first["conversation"]["knowledge_base_id"] is None
     last = llm.answer_calls[-1]
     assert last["system"] == GENERAL_SYSTEM_PROMPT
-    assert last["messages"][0] == {"role": "user", "content": "Hi there"}
+    assert last["messages"][0] == LLMMessage.user("Hi there")
     assert llm.rewrite_calls == []  # no retrieval in general chat, so no rewrite
 
 
@@ -174,7 +175,7 @@ async def test_missing_api_key_rejects_before_saving(
     def not_configured():
         raise LLMNotConfiguredError("The AI model is not configured. Set LLM_API_KEY in .env and restart.")
 
-    monkeypatch.setattr(claude, "get_llm_client", not_configured)
+    monkeypatch.setattr(llm_factory, "get_llm_provider", not_configured)
 
     response = await client.post(CHAT, json={"message": "Hi"}, headers=alice)
 

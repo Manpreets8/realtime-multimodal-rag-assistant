@@ -12,7 +12,7 @@ import pytest
 from fastapi import FastAPI
 from httpx import AsyncClient
 
-from app.llm.claude import LLMTimeoutError, LLMUnavailableError
+from app.llm.base import LLMTimeoutError, LLMUnavailableError
 from app.multimodal.speech import SpeechToTextError
 from app.multimodal.tts import TextToSpeechError
 from app.rag import embeddings

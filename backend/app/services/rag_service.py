@@ -3,7 +3,7 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.llm import claude
+from app.llm import factory as llm_factory
 from app.rag import embeddings, reranking
 from app.rag.pipeline import RagAnswer, answer_question
 from app.schemas.rag import (
@@ -23,7 +23,7 @@ async def answer(db: AsyncSession, user_id: uuid.UUID, request: AnswerRequest) -
     if request.knowledge_base_ids:
         await ensure_knowledge_bases_owned(db, user_id, request.knowledge_base_ids)
     # Resolve the LLM before retrieval so a missing API key fails fast with a clear 503.
-    llm = claude.get_llm_client()
+    llm = llm_factory.get_llm_provider()
     result = await answer_question(
         db,
         user_id=user_id,

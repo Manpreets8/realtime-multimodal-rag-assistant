@@ -10,15 +10,17 @@ import anthropic
 import httpx2
 import pytest
 
-from app.llm.claude import (
-    REFUSAL_FALLBACK_BETA,
-    ClaudeClient,
+from app.llm.base import (
+    ImagePart,
     LLMError,
     LLMNotConfiguredError,
     LLMRefusalError,
     LLMTimeoutError,
     LLMUnavailableError,
+    Message,
+    SourcePart,
 )
+from app.llm.claude import REFUSAL_FALLBACK_BETA, ClaudeClient, to_anthropic_messages
 
 
 def sse(*events: dict) -> bytes:
@@ -103,7 +105,10 @@ def streaming(body: bytes) -> httpx2.Response:
     return httpx2.Response(200, headers={"content-type": "text/event-stream"}, content=body)
 
 
-MESSAGES = [
+MESSAGES = [Message.user(SourcePart("18 days of leave.", "handbook.pdf (page 2)"), "How much leave?")]
+
+# MESSAGES as the Messages API receives them.
+WIRE_MESSAGES = [
     {
         "role": "user",
         "content": [
@@ -135,8 +140,41 @@ async def test_request_uses_streaming_beta_endpoint_with_refusal_fallback() -> N
     assert body["max_tokens"] == 4000
     assert body["system"] == "SYSTEM"
     assert body["output_config"] == {"effort": "medium"}
-    assert body["messages"] == MESSAGES
+    assert body["messages"] == WIRE_MESSAGES
     assert "thinking" not in body and "temperature" not in body
+
+
+def test_neutral_messages_translate_to_the_messages_api_format() -> None:
+    history = [
+        Message.user(ImagePart("image/png", b"png-bytes"), "What is this?"),
+        Message.assistant("A chart."),
+    ]
+    question = Message.user(SourcePart("untitled passage"), "And the trend?")
+
+    assert to_anthropic_messages([*history, question]) == [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "image",
+                    "source": {"type": "base64", "media_type": "image/png", "data": "cG5nLWJ5dGVz"},
+                },
+                {"type": "text", "text": "What is this?"},
+            ],
+        },
+        {"role": "assistant", "content": "A chart."},  # a text-only turn is a plain string
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "document",
+                    "source": {"type": "text", "media_type": "text/plain", "data": "untitled passage"},
+                    "citations": {"enabled": True},
+                },
+                {"type": "text", "text": "And the trend?"},
+            ],
+        },
+    ]
 
 
 async def test_optional_parameters_are_omitted_when_disabled() -> None:

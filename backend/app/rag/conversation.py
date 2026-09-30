@@ -18,7 +18,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from app.llm.claude import LLMClient, LLMError
+from app.llm.base import ImagePart, LLMError, LLMProvider, Message, TextPart
 
 logger = logging.getLogger(__name__)
 
@@ -43,8 +43,8 @@ and codes, titles, product or component names), so documents about it can be fou
 class HistoryMessage:
     role: str  # "user" | "assistant"
     content: str
-    # Image content blocks attached to a user message, kept for follow-ups about the image.
-    images: tuple[dict[str, Any], ...] = ()
+    # Images attached to a user message, kept for follow-ups about the image.
+    images: tuple[ImagePart, ...] = ()
 
 
 def trim_history(history: list[HistoryMessage], max_messages: int, max_chars: int) -> list[HistoryMessage]:
@@ -61,16 +61,15 @@ def trim_history(history: list[HistoryMessage], max_messages: int, max_chars: in
     ]
 
 
-def history_as_messages(history: list[HistoryMessage]) -> list[dict[str, Any]]:
-    messages: list[dict[str, Any]] = []
+def history_as_messages(history: list[HistoryMessage]) -> list[Message]:
+    messages: list[Message] = []
     for message in history:
+        role = "user" if message.role == "user" else "assistant"
         if message.images:
-            text = message.content or _IMAGE_PLACEHOLDER
-            messages.append(
-                {"role": message.role, "content": [*message.images, {"type": "text", "text": text}]}
-            )
+            parts = (*message.images, TextPart(message.content or _IMAGE_PLACEHOLDER))
         else:
-            messages.append({"role": message.role, "content": message.content})
+            parts = (TextPart(message.content),)
+        messages.append(Message(role, parts))
     return messages
 
 
@@ -95,12 +94,12 @@ def fallback_query(history: list[HistoryMessage], question: str) -> str:
 
 
 async def rewrite_query(
-    llm: LLMClient,
+    llm: LLMProvider,
     history: list[HistoryMessage],
     question: str,
     *,
     effort: str,
-    images: list[dict[str, Any]] | None = None,
+    images: list[ImagePart] | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """Return (search query, diagnostics). Never raises: falls back on LLM failure.
 
@@ -109,14 +108,11 @@ async def rewrite_query(
     if not history and not images:
         return question, {"rewritten": False}
     transcript = _transcript(history, question)
-    content: str | list[dict[str, Any]] = (
-        [*images, {"type": "text", "text": transcript}] if images else transcript
-    )
     started = time.perf_counter()
     try:
         response = await llm.generate(
             system=QUERY_REWRITE_SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": content}],
+            messages=[Message.user(*(images or []), transcript)],
             max_tokens=_REWRITE_MAX_TOKENS,
             effort=effort,
         )

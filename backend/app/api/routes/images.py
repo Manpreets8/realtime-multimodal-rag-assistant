@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from app.api.deps import ChatLimit, CurrentUser, DbSession, Storage, UploadLimit
 from app.core.config import get_settings
 from app.core.errors import NotFoundError
-from app.llm import claude
+from app.llm import factory as llm_factory
 from app.rag import embeddings, reranking
 from app.rag.conversation import rewrite_query
 from app.rag.pipeline import answer_question
@@ -109,7 +109,8 @@ async def ask_about_image(
     settings = get_settings()
     if knowledge_base_id:
         await ensure_knowledge_bases_owned(db, current_user.id, [knowledge_base_id])
-    llm = claude.get_llm_client()
+    llm = llm_factory.get_llm_provider()
+    llm_factory.ensure_vision(llm)
     data = await image_service.read_upload(file)
     await image_service.validate(data)
     blocks = [await image_service.model_block(data)]

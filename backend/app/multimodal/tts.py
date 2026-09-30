@@ -20,7 +20,7 @@ import time
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, cast
 
 import av
 import httpx
@@ -28,6 +28,7 @@ import numpy as np
 from starlette.concurrency import run_in_threadpool
 
 from app.core import cache
+from app.core.ai_calls import AICallKind, InstrumentedProvider, synthesis_usage
 from app.core.config import Settings, TTSProviderName, get_settings
 from app.core.errors import AppError
 
@@ -225,7 +226,17 @@ def build_tts_provider(settings: Settings) -> TTSProvider:
 
 @lru_cache
 def get_tts_provider() -> TTSProvider:
-    return build_tts_provider(get_settings())
+    settings = get_settings()
+    provider = build_tts_provider(settings)
+    local = settings.tts_provider is TTSProviderName.LOCAL
+    wrapped = InstrumentedProvider(
+        provider,
+        kind=AICallKind.TEXT_TO_SPEECH,
+        provider=settings.tts_provider.value,
+        model=provider.voice if local else f"{settings.tts_model}/{provider.voice}",
+        methods={"synthesize": synthesis_usage},
+    )
+    return cast(TTSProvider, wrapped)
 
 
 # --- service ------------------------------------------------------------------------

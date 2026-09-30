@@ -56,15 +56,17 @@ class RecordingQueue:
 
 
 class ScriptedLLM:
-    """Test stand-in for ClaudeClient: records requests and returns scripted output.
+    """Test stand-in for an `LLMProvider`: records requests and returns scripted output.
 
     Grounded/general answer calls return `answer` with `cite` as citations (each a
     (document_index, cited_text) pair spanning the whole answer). Query-rewrite calls,
     recognised by their system prompt, return `rewrite`."""
 
+    provider_name = "scripted"
     model_name = "test-llm"
 
     def __init__(self) -> None:
+        self.supports_images = True
         self.calls: list[dict] = []
         self.answer = "Scripted answer."
         self.cite: list[tuple[int, str]] = []
@@ -90,10 +92,10 @@ class ScriptedLLM:
     def rewrite_calls(self) -> list[dict]:
         return [call for call in self.calls if self._is_rewrite(call)]
 
-    async def generate(self, *, system: str, messages: list[dict], max_tokens=None, effort=None, stream=None):
-        from app.llm.claude import CitationSpan, LLMResponse
+    async def generate(self, *, system: str, messages, max_tokens=None, effort=None, stream=None):
+        from app.llm.base import CitationSpan, LLMResponse
 
-        call = {"system": system, "messages": messages, "max_tokens": max_tokens, "effort": effort}
+        call = {"system": system, "messages": list(messages), "max_tokens": max_tokens, "effort": effort}
         self.calls.append(call)
         if self._is_rewrite(call):
             if self.rewrite_fail_with:

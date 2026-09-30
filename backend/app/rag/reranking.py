@@ -19,10 +19,11 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, cast
 
 from starlette.concurrency import run_in_threadpool
 
+from app.core.ai_calls import AICallKind, InstrumentedProvider, rerank_usage, unwrap
 from app.core.config import RerankerProviderName, get_settings
 from app.rag.retrieval import RetrievedChunk
 
@@ -109,7 +110,7 @@ async def rerank_or_fallback(
     Returns (ranked chunks, whether reranking was applied)."""
     try:
         ranked = await reranker.rerank(query, chunks, top_k)
-        return ranked, not isinstance(reranker, PassthroughReranker)
+        return ranked, not isinstance(unwrap(reranker), PassthroughReranker)
     except RerankError:
         logger.warning("rerank_failed_using_retrieval_order", exc_info=True)
         return [RankedChunk(chunk, None) for chunk in chunks[:top_k]], False
@@ -120,4 +121,12 @@ def get_reranker() -> Reranker:
     settings = get_settings()
     if settings.reranker_provider is RerankerProviderName.NONE:
         return PassthroughReranker()
-    return LocalCrossEncoderReranker(settings.reranker_model, settings.model_cache_dir)
+    reranker = LocalCrossEncoderReranker(settings.reranker_model, settings.model_cache_dir)
+    wrapped = InstrumentedProvider(
+        reranker,
+        kind=AICallKind.RERANK,
+        provider=settings.reranker_provider.value,
+        model=reranker.model_name,
+        methods={"rerank": rerank_usage},
+    )
+    return cast(Reranker, wrapped)

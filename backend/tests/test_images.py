@@ -1,18 +1,18 @@
-import base64
 import io
 
 import pytest
 from PIL import Image
 
 from app.core.errors import FileTooLargeError, UnsupportedFileTypeError
+from app.llm.base import ImagePart
 from app.multimodal.images import InvalidImageError, prepare_for_model, validate_image
 from tests.images import PNG, image_bytes
 
 LIMITS = {"max_bytes": 5 * 1024 * 1024, "max_dimension": 8000}
 
 
-def decode(block: dict) -> Image.Image:
-    return Image.open(io.BytesIO(base64.b64decode(block["source"]["data"])))
+def decode(image: ImagePart) -> Image.Image:
+    return Image.open(io.BytesIO(image.data))
 
 
 @pytest.mark.parametrize(
@@ -65,7 +65,7 @@ def test_decompression_bomb_is_rejected_before_decoding() -> None:
 def test_large_images_are_downscaled_to_the_model_edge() -> None:
     block = prepare_for_model(image_bytes("PNG", (3000, 2000)), max_edge=1568)
 
-    assert block["type"] == "image" and block["source"]["type"] == "base64"
+    assert isinstance(block, ImagePart) and block.media_type == "image/png"
     assert decode(block).size == (1568, 1045)
 
 
@@ -82,16 +82,16 @@ def test_exif_rotation_is_applied_and_metadata_stripped() -> None:
     block = prepare_for_model(photo, max_edge=1568)
 
     output = decode(block)
-    assert block["source"]["media_type"] == "image/jpeg"
+    assert block.media_type == "image/jpeg"
     assert output.size == (200, 400)  # upright
-    assert b"SecretCam" not in base64.b64decode(block["source"]["data"])
+    assert b"SecretCam" not in block.data
 
 
 @pytest.mark.parametrize("fmt", ["WEBP", "GIF"])
 def test_other_formats_are_sent_as_png(fmt: str) -> None:
     block = prepare_for_model(image_bytes(fmt, (50, 50)), max_edge=1568)
 
-    assert block["source"]["media_type"] == "image/png"
+    assert block.media_type == "image/png"
     assert decode(block).format == "PNG"
 
 

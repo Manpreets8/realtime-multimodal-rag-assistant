@@ -1,4 +1,4 @@
-from app.llm.claude import LLMUnavailableError
+from app.llm.base import LLMUnavailableError
 from app.rag.conversation import (
     QUERY_REWRITE_SYSTEM_PROMPT,
     HistoryMessage,
@@ -43,7 +43,7 @@ async def test_rewrite_sends_the_transcript_with_a_small_budget() -> None:
     [call] = llm.calls
     assert call["system"] == QUERY_REWRITE_SYSTEM_PROMPT
     assert call["effort"] == "low" and call["max_tokens"] == 2000
-    transcript = call["messages"][0]["content"]
+    transcript = call["messages"][0].text
     assert "User: What is the leave policy?" in transcript
     assert "Assistant: 10 days of sick leave." in transcript
     assert transcript.endswith("Latest message: Can it be carried over?")

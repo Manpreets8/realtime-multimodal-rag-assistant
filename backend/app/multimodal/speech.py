@@ -20,13 +20,14 @@ import time
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, cast
 
 import av
 import httpx
 import numpy as np
 from starlette.concurrency import run_in_threadpool
 
+from app.core.ai_calls import AICallKind, InstrumentedProvider, transcription_usage
 from app.core.config import Settings, SpeechProviderName, get_settings
 from app.core.errors import AppError, FileTooLargeError, UnsupportedFileTypeError
 
@@ -236,7 +237,16 @@ def build_speech_provider(settings: Settings) -> SpeechProvider:
 
 @lru_cache
 def get_speech_provider() -> SpeechProvider:
-    return build_speech_provider(get_settings())
+    settings = get_settings()
+    provider = build_speech_provider(settings)
+    wrapped = InstrumentedProvider(
+        provider,
+        kind=AICallKind.SPEECH_TO_TEXT,
+        provider=settings.stt_provider.value,
+        model=provider.model_name,
+        methods={"transcribe": transcription_usage},
+    )
+    return cast(SpeechProvider, wrapped)
 
 
 @lru_cache

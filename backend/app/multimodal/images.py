@@ -9,15 +9,14 @@ also drops metadata such as GPS location), base64-encoded.
 All functions are blocking (decoding/encoding); call them from a worker thread.
 """
 
-import base64
 import io
 import warnings
 from dataclasses import dataclass
-from typing import Any
 
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from app.core.errors import AppError, FileTooLargeError, UnsupportedFileTypeError
+from app.llm.base import ImagePart
 
 # Formats accepted by the Claude API, keyed by Pillow format name.
 SUPPORTED_FORMATS: dict[str, tuple[str, str]] = {
@@ -83,8 +82,8 @@ def validate_image(data: bytes, *, max_bytes: int, max_dimension: int) -> ImageI
     return ImageInfo(media_type=media_type, extension=extension, width=width, height=height)
 
 
-def prepare_for_model(data: bytes, *, max_edge: int) -> dict[str, Any]:
-    """Return a Messages API image content block for `data` (already validated)."""
+def prepare_for_model(data: bytes, *, max_edge: int) -> ImagePart:
+    """The image as sent to the model (already validated): oriented, downscaled, re-encoded."""
     try:
         with Image.open(io.BytesIO(data)) as source:
             source_format = source.format
@@ -107,11 +106,4 @@ def prepare_for_model(data: bytes, *, max_edge: int) -> dict[str, Any]:
     except (UnidentifiedImageError, OSError, ValueError) as exc:
         raise InvalidImageError("The image could not be processed.") from exc
 
-    return {
-        "type": "image",
-        "source": {
-            "type": "base64",
-            "media_type": media_type,
-            "data": base64.standard_b64encode(buffer.getvalue()).decode("ascii"),
-        },
-    }
+    return ImagePart(media_type=media_type, data=buffer.getvalue())

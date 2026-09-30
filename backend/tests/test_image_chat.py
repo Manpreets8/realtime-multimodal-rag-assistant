@@ -7,6 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.llm.base import ImagePart, SourcePart, TextPart
 from app.models import Message
 from app.rag.prompts import DEFAULT_IMAGE_QUESTION, IMAGE_SYSTEM_PROMPT, MULTIMODAL_SYSTEM_PROMPT
 from app.services.ingestion_service import process_document
@@ -53,10 +54,6 @@ async def upload(client: AsyncClient, headers: dict, data: bytes = PNG, name: st
 def stored(root: Path, pattern: str) -> list[Path]:
     """Files under the storage root (sync helper: keeps blocking I/O out of async tests)."""
     return sorted(root.rglob(pattern))
-
-
-def image_blocks(content: list | str) -> list[dict]:
-    return [block for block in content if block["type"] == "image"] if isinstance(content, list) else []
 
 
 # --- upload / serve -----------------------------------------------------------------
@@ -125,9 +122,9 @@ async def test_image_question_without_knowledge_base(
     assert body["user_message"]["images"][0]["id"] == image["id"]
     [call] = llm.answer_calls
     assert call["system"] == IMAGE_SYSTEM_PROMPT
-    content = call["messages"][-1]["content"]
-    assert content[0]["type"] == "image" and content[0]["source"]["media_type"] == "image/png"
-    assert content[-1] == {"type": "text", "text": "What is this?"}
+    question = call["messages"][-1]
+    assert isinstance(question.parts[0], ImagePart) and question.parts[0].media_type == "image/png"
+    assert question.parts[-1] == TextPart("What is this?")
 
 
 async def test_image_only_message_uses_a_default_question(
@@ -138,7 +135,7 @@ async def test_image_only_message_uses_a_default_question(
     body = (await client.post(CHAT, json={"message": "", "image_ids": [image["id"]]}, headers=alice)).json()
 
     assert body["user_message"]["content"] == ""
-    assert llm.answer_calls[0]["messages"][-1]["content"][-1]["text"] == DEFAULT_IMAGE_QUESTION
+    assert llm.answer_calls[0]["messages"][-1].parts[-1] == TextPart(DEFAULT_IMAGE_QUESTION)
 
 
 async def test_image_with_knowledge_base_searches_with_its_visible_text(
@@ -161,10 +158,10 @@ async def test_image_with_knowledge_base_searches_with_its_visible_text(
     assert assistant["retrieval_query"] == "ERR-4521 VPN error"
     assert assistant["citations"][0]["filename"] == "vpn.md"
     [rewrite] = llm.rewrite_calls  # no history, but the image needs reading for search
-    assert image_blocks(rewrite["messages"][0]["content"])
+    assert rewrite["messages"][0].images
     [answer] = llm.answer_calls
     assert answer["system"] == MULTIMODAL_SYSTEM_PROMPT
-    assert [block["type"] for block in answer["messages"][-1]["content"]] == ["image", "document", "text"]
+    assert [type(part) for part in answer["messages"][-1].parts] == [ImagePart, SourcePart, TextPart]
 
 
 async def test_image_with_uncited_documents_is_an_image_answer(
@@ -224,8 +221,8 @@ async def test_follow_ups_keep_earlier_images_in_context_up_to_the_limit(
     )
 
     history_user_turn = llm.answer_calls[-1]["messages"][0]
-    assert len(image_blocks(history_user_turn["content"])) == 1  # capped by MAX_HISTORY_IMAGES
-    assert history_user_turn["content"][-1]["text"] == "Compare these"
+    assert len(history_user_turn.images) == 1  # capped by MAX_HISTORY_IMAGES
+    assert history_user_turn.parts[-1] == TextPart("Compare these")
 
 
 async def test_an_image_can_only_be_sent_once(client: AsyncClient, alice: dict) -> None:
@@ -315,3 +312,22 @@ async def test_one_shot_image_question(
     assert grounded.json()["citations"][0]["filename"] == "vpn.md"
     assert invalid.status_code == 415
     assert await db.scalar(select(func.count()).select_from(Message)) == 0  # not saved to any conversation
+
+
+async def test_images_are_refused_when_the_llm_cannot_read_them(
+    client: AsyncClient, alice: dict, llm: ScriptedLLM, db: AsyncSession
+) -> None:
+    llm.supports_images = False
+    image = await upload(client, alice)
+
+    response = await client.post(
+        CHAT, json={"message": "What is this?", "image_ids": [image["id"]]}, headers=alice
+    )
+    one_off = await client.post(
+        "/api/v1/multimodal/image", files={"file": ("screen.png", PNG)}, data={"question": "?"}, headers=alice
+    )
+
+    assert response.status_code == 422 and response.json()["error"]["code"] == "vision_not_supported"
+    assert one_off.status_code == 422 and one_off.json()["error"]["code"] == "vision_not_supported"
+    assert llm.calls == []  # never sent
+    assert await db.scalar(select(func.count()).select_from(Message)) == 0  # nothing saved

@@ -15,7 +15,8 @@ from sqlalchemy.orm import selectinload
 
 from app.core.config import get_settings
 from app.core.errors import AppError, NotFoundError
-from app.llm import claude
+from app.llm import factory as llm_factory
+from app.llm.base import ImagePart
 from app.models import Citation, Conversation, ImageUpload, KnowledgeBase, Message, MessageRole
 from app.rag import embeddings, reranking
 from app.rag.conversation import HistoryMessage, rewrite_query, trim_history
@@ -219,7 +220,7 @@ async def _history(
     budget = max_images
     history: list[HistoryMessage] = []
     for message in messages:
-        blocks: list[dict] = []
+        blocks: list[ImagePart] = []
         if message.role is MessageRole.USER and message.images and budget > 0:
             kept = message.images[-budget:]
             budget -= len(kept)
@@ -300,7 +301,7 @@ async def send_message(
     Nothing is saved unless the whole turn succeeds, including when the caller cancels."""
     settings = get_settings()
     received_at = datetime.now(UTC)
-    llm = claude.get_llm_client()  # fail fast (503) before doing any work if no API key is configured
+    llm = llm_factory.get_llm_provider()  # fail fast (503) before doing any work if no API key is configured
 
     conversation = await _get_owned(db, user_id, request.conversation_id) if request.conversation_id else None
     if conversation is not None and conversation.updated_at >= received_at:
@@ -312,6 +313,8 @@ async def send_message(
 
     if len(request.image_ids) > settings.max_images_per_message:
         raise AppError(f"Attach at most {settings.max_images_per_message} images per message.")
+    if request.image_ids:
+        llm_factory.ensure_vision(llm)
     images = await image_service.get_attachable(db, user_id, request.image_ids)
     image_blocks = await image_service.model_blocks(storage, images)
     question = request.message or DEFAULT_IMAGE_QUESTION

@@ -56,6 +56,7 @@ Every error uses one envelope, `{"error": {"code", "message", "request_id", "det
 | Vector database / database down | 503 `database_unavailable` or `service_unavailable` with `Retry-After` (verified by stopping PostgreSQL); the app recovers by itself when it is back |
 | Slow query | 504 `timeout`: every connection has a 30 s `statement_timeout` (`DB_STATEMENT_TIMEOUT_MS`) |
 | LLM failure / timeout / refusal | 502 `llm_error`, 503 `llm_unavailable` / `llm_not_configured`, 504 `llm_timeout`, 422 `llm_refusal`. Nothing is saved |
+| Images sent to an LLM provider without vision | 422 `vision_not_supported`, before anything is sent or saved |
 | Speech-to-text / text-to-speech failure | 502 `stt_error` / `tts_error`, 422 `no_speech` / `nothing_to_speak` |
 | Image processing failure | 422 `invalid_image` |
 | WebSocket disconnect | Generation stops and nothing is saved. The UI says the connection was lost and offers Retry |

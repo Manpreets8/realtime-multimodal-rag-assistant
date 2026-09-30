@@ -7,7 +7,7 @@ from httpx import AsyncClient
 
 from app.api.routes import chat_socket
 from app.core.config import get_settings
-from app.llm.claude import LLMNotConfiguredError, LLMTimeoutError
+from app.llm.base import LLMNotConfiguredError, LLMTimeoutError
 from app.services.ingestion_service import process_document
 from tests.conftest import RegisterFn, bearer
 from tests.fakes import ScriptedLLM

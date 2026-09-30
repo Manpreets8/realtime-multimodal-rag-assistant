@@ -11,6 +11,7 @@ from app.api.routes import (
     knowledge_bases,
     rag,
     retrieval,
+    system,
     voice,
 )
 
@@ -28,3 +29,4 @@ api_router.include_router(chat_socket.router)
 api_router.include_router(images.images_router)
 api_router.include_router(images.multimodal_router)
 api_router.include_router(voice.router)
+api_router.include_router(system.router)

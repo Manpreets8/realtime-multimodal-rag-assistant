@@ -22,11 +22,11 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any, Protocol
+from typing import Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.llm.claude import CitationSpan, LLMClient, TextStream
+from app.llm.base import CitationSpan, ImagePart, LLMProvider, TextStream
 from app.rag.conversation import HistoryMessage, history_as_messages
 from app.rag.embeddings import EmbeddingProvider
 from app.rag.prompts import (
@@ -157,19 +157,19 @@ async def answer_question(
     question: str,
     embedder: EmbeddingProvider,
     reranker: Reranker,
-    llm: LLMClient,
+    llm: LLMProvider,
     candidates: int,
     rerank_candidates: int,
     top_k: int,
     similarity_threshold: float,
     history: list[HistoryMessage] | None = None,
     retrieval_query: str | None = None,
-    images: list[dict[str, Any]] | None = None,
+    images: list[ImagePart] | None = None,
     events: AnswerEvents | None = None,
 ) -> RagAnswer:
     """`history` is prior conversation (oldest first) sent before the question; `retrieval_query`
     (e.g. a rewritten follow-up) is used for search and reranking instead of the raw question;
-    `images` are image content blocks attached to this question; `events` receives progress."""
+    `images` are the images attached to this question; `events` receives progress."""
     started = time.perf_counter()
     question = normalize_query(question)
     search_query = normalize_query(retrieval_query or question)

@@ -134,7 +134,7 @@ async def run(args: argparse.Namespace) -> int:
         evaluate_retrieval,
         prepare_corpus,
     )
-    from app.llm import claude
+    from app.llm import factory as llm_factory
     from app.rag import embeddings, reranking
     from app.services.storage import LocalFileStorage
 
@@ -209,7 +209,7 @@ async def run(args: argparse.Namespace) -> int:
                 SessionLocal,
                 embedder,
                 reranker,
-                claude.get_llm_client(),
+                llm_factory.get_llm_provider(),
                 judge,
                 user_id=prepared.user_id,
                 kb_id=prepared.knowledge_base_id,

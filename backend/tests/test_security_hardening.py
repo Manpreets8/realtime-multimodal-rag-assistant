@@ -322,7 +322,7 @@ async def test_cors_allows_configured_origins_only_and_never_credentials(client:
 async def test_secrets_never_appear_in_responses_or_logs(
     client: AsyncClient, register_user: RegisterFn, llm: ScriptedLLM, caplog: pytest.LogCaptureFixture
 ) -> None:
-    from app.llm.claude import LLMNotConfiguredError
+    from app.llm.base import LLMNotConfiguredError
 
     settings = get_settings()
     secrets = [settings.jwt_secret.get_secret_value(), DEFAULT_PASSWORD, "sk-ant-leak-canary"]
@@ -447,7 +447,7 @@ async def test_statement_timeout_is_set_on_every_connection(db: AsyncSession) ->
 async def test_a_failed_chat_request_can_be_traced_by_its_request_id(
     client: AsyncClient, register_user: RegisterFn, llm: ScriptedLLM, caplog: pytest.LogCaptureFixture
 ) -> None:
-    from app.llm.claude import LLMTimeoutError
+    from app.llm.base import LLMTimeoutError
 
     headers = bearer((await register_user())["access_token"])
     llm.fail_with = LLMTimeoutError("The AI model took too long to respond. Please try again.")

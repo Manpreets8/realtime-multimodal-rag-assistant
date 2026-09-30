@@ -39,7 +39,7 @@ from app.evaluation.metrics import (
     score_citations,
     score_ranking,
 )
-from app.llm.claude import LLMClient, LLMError
+from app.llm.base import LLMError, LLMProvider
 from app.models import Document, DocumentChunk, DocumentStatus, KnowledgeBase, User
 from app.rag.embeddings import EmbeddingProvider
 from app.rag.pipeline import AnswerType, answer_question
@@ -362,7 +362,7 @@ async def evaluate_answers(
     session_factory: async_sessionmaker[AsyncSession],
     embedder: EmbeddingProvider,
     reranker: Reranker,
-    llm: LLMClient,
+    llm: LLMProvider,
     judge: ClaudeJudge | None,
     *,
     user_id: uuid.UUID,

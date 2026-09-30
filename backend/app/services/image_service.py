@@ -3,7 +3,6 @@
 import logging
 import uuid
 from collections.abc import Sequence
-from typing import Any
 
 from fastapi import UploadFile
 from sqlalchemy import select
@@ -12,6 +11,7 @@ from starlette.concurrency import run_in_threadpool
 
 from app.core.config import get_settings
 from app.core.errors import ConflictError, FileTooLargeError, NotFoundError
+from app.llm.base import ImagePart
 from app.models import ImageUpload
 from app.multimodal.images import ImageInfo, InvalidImageError, prepare_for_model, validate_image
 from app.services.storage import LocalFileStorage
@@ -36,7 +36,7 @@ async def validate(data: bytes) -> ImageInfo:
     )
 
 
-async def model_block(data: bytes) -> dict[str, Any]:
+async def model_block(data: bytes) -> ImagePart:
     return await run_in_threadpool(prepare_for_model, data, max_edge=get_settings().image_model_max_edge)
 
 
@@ -106,8 +106,8 @@ async def get_attachable(
     return [rows[image_id] for image_id in image_ids]
 
 
-async def model_blocks(storage: LocalFileStorage, images: Sequence[ImageUpload]) -> list[dict[str, Any]]:
-    """Content blocks for the model. Fails loudly: never answer as if an image was seen when it wasn't."""
+async def model_blocks(storage: LocalFileStorage, images: Sequence[ImageUpload]) -> list[ImagePart]:
+    """Images as sent to the model. Fails loudly: never answer as if an image was seen when it wasn't."""
     blocks = []
     for image in images:
         try:

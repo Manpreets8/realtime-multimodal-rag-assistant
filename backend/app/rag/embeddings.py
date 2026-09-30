@@ -19,12 +19,18 @@ from array import array
 from collections.abc import Iterator, Sequence
 from functools import lru_cache
 from pathlib import Path
-from typing import ClassVar, Protocol
+from typing import ClassVar, Protocol, cast
 
 import httpx
 from starlette.concurrency import run_in_threadpool
 
 from app.core import cache
+from app.core.ai_calls import (
+    AICallKind,
+    InstrumentedProvider,
+    embedding_documents_usage,
+    embedding_query_usage,
+)
 from app.core.config import EmbeddingProviderName, Settings, get_settings
 from app.core.errors import AppError
 
@@ -226,7 +232,16 @@ def validate_embedding_settings(settings: Settings, column_dimensions: int) -> N
 
 @lru_cache
 def get_embedding_provider() -> EmbeddingProvider:
-    return build_embedding_provider(get_settings())
+    settings = get_settings()
+    provider = build_embedding_provider(settings)
+    wrapped = InstrumentedProvider(
+        provider,
+        kind=AICallKind.EMBEDDING,
+        provider=settings.embedding_provider.value,
+        model=provider.model_name,
+        methods={"embed_documents": embedding_documents_usage, "embed_query": embedding_query_usage},
+    )
+    return cast(EmbeddingProvider, wrapped)
 
 
 async def embed_query_cached(provider: EmbeddingProvider, text: str) -> tuple[list[float], bool]:

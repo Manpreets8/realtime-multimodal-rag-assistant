@@ -27,6 +27,10 @@ class Environment(StrEnum):
     PRODUCTION = "production"
 
 
+class LLMProviderName(StrEnum):
+    ANTHROPIC = "anthropic"  # Claude (Messages API): answers, native citations, image understanding
+
+
 class EmbeddingProviderName(StrEnum):
     LOCAL = "local"  # fastembed (ONNX) running on this machine; no API key needed
     VOYAGE = "voyage"  # Voyage AI hosted API
@@ -76,7 +80,8 @@ class Settings(BaseSettings):
     )
 
     # --- Application -----------------------------------------------------
-    app_name: str = "Real-Time Multimodal RAG Assistant"
+    app_name: str = "Mindora AI"
+    app_tagline: str = "Your knowledge. One intelligent AI."
     app_version: str = "0.1.0"
     environment: Environment = Environment.DEVELOPMENT
     log_level: str = "INFO"
@@ -102,6 +107,8 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = Field(default=60, ge=1)
 
     # --- AI providers ----------------------------------------------------
+    # Which implementation serves each capability is chosen here; see app/core/providers.py.
+    llm_provider: LLMProviderName = LLMProviderName.ANTHROPIC
     llm_api_key: SecretStr | None = None
     embedding_api_key: SecretStr | None = None
     stt_api_key: SecretStr | None = None

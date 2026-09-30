@@ -28,7 +28,7 @@ from app.core import redis as redis_client
 from app.core.config import get_settings
 from app.db.base import Base
 from app.db.session import SessionLocal, engine
-from app.llm import claude
+from app.llm import factory as llm_factory
 from app.main import create_app
 from app.multimodal import speech, tts
 from app.rag import embeddings, reranking
@@ -122,7 +122,7 @@ def reranker(monkeypatch: pytest.MonkeyPatch) -> reranking.PassthroughReranker:
 def llm(monkeypatch: pytest.MonkeyPatch) -> ScriptedLLM:
     """No test ever calls the real Anthropic API."""
     instance = ScriptedLLM()
-    monkeypatch.setattr(claude, "get_llm_client", lambda: instance)
+    monkeypatch.setattr(llm_factory, "get_llm_provider", lambda: instance)
     return instance
 
 

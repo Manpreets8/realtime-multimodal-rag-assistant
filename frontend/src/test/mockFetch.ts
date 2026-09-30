@@ -28,7 +28,7 @@ export function mockFetch(routes: Record<string, Handler>) {
 }
 
 export const HEALTHY_BACKEND: Record<string, Handler> = {
-  'GET /health': () => json({ status: 'ok', app: 'RAG Assistant', version: '0.1.0', environment: 'test' }),
+  'GET /health': () => json({ status: 'ok', app: 'Mindora AI', version: '0.1.0', environment: 'test' }),
   'GET /health/ready': () =>
     json({
       status: 'ready',

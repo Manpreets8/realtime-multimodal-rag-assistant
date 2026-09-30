@@ -5,8 +5,7 @@ order, before the question. The system prompt is fixed text (no timestamps or
 IDs), so it stays byte-identical across requests.
 """
 
-from typing import Any
-
+from app.llm.base import ImagePart, Message, SourcePart
 from app.rag.reranking import RankedChunk
 
 GROUNDED_SYSTEM_PROMPT = """\
@@ -63,24 +62,12 @@ def source_title(ranked: RankedChunk) -> str:
 
 
 def build_grounded_messages(
-    question: str, sources: list[RankedChunk], images: list[dict[str, Any]] | None = None
-) -> list[dict[str, Any]]:
-    """One user turn: any images, a citable document block per source (in rank order), then the question."""
-    content: list[dict[str, Any]] = [*(images or [])]
-    content += [
-        {
-            "type": "document",
-            "source": {"type": "text", "media_type": "text/plain", "data": ranked.chunk.content},
-            "title": source_title(ranked),
-            "citations": {"enabled": True},
-        }
-        for ranked in sources
-    ]
-    content.append({"type": "text", "text": question})
-    return [{"role": "user", "content": content}]
+    question: str, sources: list[RankedChunk], images: list[ImagePart] | None = None
+) -> list[Message]:
+    """One user turn: any images, a citable source per retrieved chunk (in rank order), then the question."""
+    passages = [SourcePart(ranked.chunk.content, source_title(ranked)) for ranked in sources]
+    return [Message.user(*(images or []), *passages, question)]
 
 
-def build_general_messages(question: str, images: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
-    if images:
-        return [{"role": "user", "content": [*images, {"type": "text", "text": question}]}]
-    return [{"role": "user", "content": question}]
+def build_general_messages(question: str, images: list[ImagePart] | None = None) -> list[Message]:
+    return [Message.user(*(images or []), question)]

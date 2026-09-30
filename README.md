@@ -1,10 +1,12 @@
-# Real-Time Multimodal RAG Assistant
+# Mindora AI
 
-Ask questions about your own documents by typing, speaking or showing a screenshot. Answers are grounded in your files, cite the exact passages they rely on, stream in as they are written, and can be read aloud.
+**Your knowledge. One intelligent AI.**
+
+Mindora AI is a real-time multimodal RAG assistant. Ask questions about your own documents by typing, speaking or showing a screenshot. Answers are grounded in your files, cite the exact passages they rely on, stream in as they are written, and can be read aloud.
 
 Built as a full-stack, production-minded application: FastAPI and PostgreSQL/pgvector behind a React app, a Redis-backed worker for document processing, local models for embeddings, reranking, speech-to-text and text-to-speech, Claude for answers and image understanding, an evaluation harness, and a Docker setup that deploys with HTTPS.
 
-> **Status.** All 17 build phases are complete. Everything described here is implemented and tested: **460 backend tests** at 94% line and branch coverage, and **126 frontend tests**. One limitation applies throughout: no Anthropic API key was available during development. The Claude integration is tested against the real SDK with recorded HTTP responses and, end to end, against a local mock of the API, but the quality of Claude's answers has **not been measured**. Retrieval quality has been measured (see [Evaluation](#14-evaluation)).
+> **Status.** All 17 build phases are complete. Everything described here is implemented and tested: **460 backend tests** at 94% line and branch coverage, and **126 frontend tests**. The Claude integration is tested against the real SDK with recorded HTTP responses, and has been checked end to end with a real Anthropic API key. The quality of Claude's answers has **not been measured yet**: the answer-quality evaluation is built but has not been run. Retrieval quality has been measured (see [Evaluation](#14-evaluation)).
 
 **Contents:**
 1. [Overview](#1-project-overview)
@@ -83,6 +85,7 @@ flowchart LR
 - **Workers** consume the Redis Stream. A job is acknowledged only after its result is committed to PostgreSQL. If a worker dies, its job is taken over, and a document that keeps failing is marked failed with an explanation.
 - **PostgreSQL** is the source of truth: users, documents, chunks with their vectors and full-text index, conversations and citations. **Redis** holds only what can be rebuilt: jobs, rate-limit windows, caches and live progress.
 - The backend is layered. `api/` handles HTTP concerns only. `services/` holds business rules and ownership checks. `rag/`, `llm/` and `multimodal/` are the pipelines. `workers/` holds the queue, worker and maintenance. `core/` holds config, errors, logging, security and middleware.
+- **AI providers are swappable.** The LLM, embeddings, reranker, speech-to-text and text-to-speech are each used through an interface and chosen by an environment variable. LLM requests are built from provider-neutral parts (text, image, citable source) and translated only inside the Claude provider. Every AI call is timed and logged the same way. See [docs/providers.md](docs/providers.md).
 
 ## 4. Tech stack
 
@@ -146,6 +149,7 @@ All settings live in `.env` (template: [.env.example](.env.example)). They are v
 
 | Variable | Default | Purpose |
 |---|---|---|
+| `LLM_PROVIDER` | `anthropic` | LLM implementation (see [docs/providers.md](docs/providers.md)) |
 | `LLM_API_KEY` | (none) | Anthropic API key, used for answers and image understanding |
 | `MODEL_NAME` | `claude-opus-5` | Claude model |
 | `ENVIRONMENT` | `development` | `production` requires a strong `JWT_SECRET` and no wildcard CORS, and enables HSTS |
@@ -248,6 +252,7 @@ Interactive OpenAPI docs are served at `/docs` (Swagger UI) and `/redoc`; the sc
 | Chat | `POST /chat`, `GET /conversations`, `GET/PATCH/DELETE /conversations/{id}`, `WS /ws/chat` (streaming; [protocol](docs/multimodal.md#real-time-streaming-websocket)) |
 | Images | `POST /images`, `GET /images/{id}/content`, `DELETE /images/{id}`, `POST /multimodal/image` |
 | Voice | `POST /voice/transcribe`, `POST /voice/synthesize` |
+| System | `GET /system/providers` (which provider and model serves each AI capability; no secrets) |
 | Health | `GET /health` (liveness), `GET /health/ready` (database and pgvector; also reports Redis and worker count) |
 
 Errors always use one envelope, `{"error": {"code", "message", "request_id", "details"}}`, with a message meant for users and a request ID that matches the logs. See [docs/security.md](docs/security.md) for the full error catalogue.
@@ -365,6 +370,7 @@ Full details: [docs/operations.md](docs/operations.md).
 | Document | Contents |
 |---|---|
 | [docs/rag-pipeline.md](docs/rag-pipeline.md) | Knowledge bases, ingestion, retrieval, answers, citations, chat history, with measurements |
+| [docs/providers.md](docs/providers.md) | The AI provider interfaces, provider-neutral messages, adding a provider, per-call `ai_call` logging |
 | [docs/multimodal.md](docs/multimodal.md) | Images, voice input, voice output, WebSocket streaming protocol |
 | [docs/operations.md](docs/operations.md) | Redis and background jobs, the worker's reliability design, deployment |
 | [docs/security.md](docs/security.md) | Authentication, security measures and tests, error catalogue, debugging a failed request |

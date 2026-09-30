@@ -43,7 +43,7 @@ from app.core.logging import configure_logging, request_id_ctx
 from app.core.redis import create_redis
 from app.db.session import SessionLocal, engine
 from app.models import Document, DocumentStatus
-from app.rag.embeddings import LocalEmbeddingProvider, get_embedding_provider
+from app.rag.embeddings import get_embedding_provider
 from app.services.ingestion_service import process_document
 from app.workers import maintenance
 from app.workers.job_queue import (
@@ -363,7 +363,7 @@ async def _main() -> None:
             signal.signal(sig, lambda *_: loop.call_soon_threadsafe(worker.stop))
 
     provider = get_embedding_provider()
-    if isinstance(provider, LocalEmbeddingProvider):
+    if hasattr(provider, "warm_up"):  # a model on this machine: load it before taking jobs
         await asyncio.to_thread(provider.warm_up)
     try:
         await worker.run()

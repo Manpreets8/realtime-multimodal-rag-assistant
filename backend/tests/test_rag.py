@@ -4,11 +4,19 @@ import pytest
 from httpx import AsyncClient
 
 from app.core.config import get_settings
-from app.llm import claude
-from app.llm.claude import CitationSpan, LLMNotConfiguredError, LLMRefusalError, LLMTimeoutError
+from app.llm import factory as llm_factory
+from app.llm.base import (
+    CitationSpan,
+    LLMNotConfiguredError,
+    LLMRefusalError,
+    LLMTimeoutError,
+    Message,
+    SourcePart,
+    TextPart,
+)
 
 # Bound at import time, before the autouse `llm` fixture replaces the module attribute.
-from app.llm.claude import get_llm_client as real_llm_factory
+from app.llm.factory import get_llm_provider as real_llm_factory
 from app.rag import reranking
 from app.rag.pipeline import NOT_FOUND_MESSAGE, locate_quote, map_citations
 from app.rag.prompts import GENERAL_SYSTEM_PROMPT, GROUNDED_SYSTEM_PROMPT, build_grounded_messages
@@ -53,12 +61,11 @@ def test_grounded_messages_send_citable_documents_before_the_question() -> None:
 
     [message] = build_grounded_messages("How much leave?", sources)
 
-    documents, question = message["content"][:-1], message["content"][-1]
-    assert message["role"] == "user"
-    assert question == {"type": "text", "text": "How much leave?"}
-    assert [d["title"] for d in documents] == ["handbook.pdf (page 2)", "security.docx (Passwords)"]
-    assert all(d["type"] == "document" and d["citations"] == {"enabled": True} for d in documents)
-    assert documents[0]["source"] == {"type": "text", "media_type": "text/plain", "data": "18 days of leave."}
+    assert message == Message.user(
+        SourcePart("18 days of leave.", "handbook.pdf (page 2)"),
+        SourcePart("Passwords: 14 chars.", "security.docx (Passwords)"),
+        "How much leave?",
+    )
 
 
 def test_system_prompt_encodes_the_grounding_rules() -> None:
@@ -190,9 +197,9 @@ async def test_grounded_answer_with_citations(
     # The LLM saw the grounding prompt and one citable document per source, question last.
     [call] = llm.calls
     assert call["system"] == GROUNDED_SYSTEM_PROMPT
-    content = call["messages"][0]["content"]
-    assert [block["type"] for block in content] == ["document"] * len(body["sources"]) + ["text"]
-    assert content[0]["source"]["data"] == body["sources"][0]["content"]
+    [message] = call["messages"]
+    assert [type(part) for part in message.parts] == [SourcePart] * len(body["sources"]) + [TextPart]
+    assert message.sources[0].text == body["sources"][0]["content"]
 
 
 async def test_nothing_relevant_means_not_found_without_calling_the_llm(
@@ -233,7 +240,7 @@ async def test_general_answer_without_a_knowledge_base(
     assert body["sources"] == [] and body["retrieval"] is None
     [call] = llm.calls
     assert call["system"] == GENERAL_SYSTEM_PROMPT
-    assert call["messages"] == [{"role": "user", "content": "What is the capital of France?"}]
+    assert call["messages"] == [Message.user("What is the capital of France?")]
 
 
 async def test_reranker_order_decides_which_sources_reach_the_llm(
@@ -287,7 +294,7 @@ async def test_missing_api_key_gives_a_clear_503(
             "The AI model is not configured. Set LLM_API_KEY (an Anthropic API key) in .env and restart."
         )
 
-    monkeypatch.setattr(claude, "get_llm_client", not_configured)
+    monkeypatch.setattr(llm_factory, "get_llm_provider", not_configured)
 
     response = await ask(client, alice, "annual leave", [kb_id])
 

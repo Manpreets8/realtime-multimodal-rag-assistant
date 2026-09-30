@@ -12,13 +12,14 @@ from app.core.config import get_settings
 from app.core.errors import register_exception_handlers
 from app.core.logging import configure_logging
 from app.core.middleware import RequestContextMiddleware, SecurityHeadersMiddleware
+from app.core.providers import llm_configured
 from app.core.redis import close_redis, get_redis
 from app.db.session import engine
 from app.models import EMBEDDING_COLUMN_DIMENSIONS
-from app.multimodal.speech import LocalWhisperProvider, get_speech_provider
-from app.multimodal.tts import LocalPiperProvider, get_tts_provider
-from app.rag.embeddings import LocalEmbeddingProvider, get_embedding_provider, validate_embedding_settings
-from app.rag.reranking import LocalCrossEncoderReranker, get_reranker
+from app.multimodal.speech import get_speech_provider
+from app.multimodal.tts import get_tts_provider
+from app.rag.embeddings import get_embedding_provider, validate_embedding_settings
+from app.rag.reranking import get_reranker
 from app.workers.job_queue import JobQueue
 
 logger = logging.getLogger(__name__)
@@ -42,16 +43,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Ingestion runs in worker processes (python -m app.workers.ingestion_worker); the API only queues.
     app.state.ingestion_queue = JobQueue(get_redis())
 
-    # Load local models in the background so the first request doesn't pay for it.
+    # Load local models in the background so the first request doesn't pay for it
+    # (providers that run a model on this machine have `warm_up`; API providers don't).
     warm_ups = [
-        asyncio.create_task(asyncio.to_thread(model.warm_up))
-        for model in (get_embedding_provider(), get_reranker(), get_speech_provider(), get_tts_provider())
-        if isinstance(
-            model,
-            LocalEmbeddingProvider | LocalCrossEncoderReranker | LocalWhisperProvider | LocalPiperProvider,
-        )
+        asyncio.create_task(asyncio.to_thread(provider.warm_up))
+        for provider in (get_embedding_provider(), get_reranker(), get_speech_provider(), get_tts_provider())
+        if hasattr(provider, "warm_up")
     ]
-    if settings.llm_api_key is None:
+    if not llm_configured(settings):
         logger.warning("llm_not_configured", extra={"hint": "Set LLM_API_KEY to enable answers"})
 
     yield

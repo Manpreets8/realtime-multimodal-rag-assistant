@@ -1,4 +1,4 @@
-"""Claude (Anthropic Messages API) client used for answer generation.
+"""Claude (Anthropic Messages API): the `LLMProvider` implementation for LLM_PROVIDER=anthropic.
 
 Uses the official async SDK with streaming (`.stream()` + `get_final_message()`),
 which avoids HTTP timeouts on long generations; with a `TextStream`, text deltas are
@@ -9,103 +9,73 @@ can happen mid-stream: the declined model's partial text is followed by a `fallb
 block and the fallback model's answer. Only the text after the last `fallback` block
 is the answer, and streams are told to discard what they received so far.
 
-Citations come from the API's native citations feature: context is passed as
-`document` blocks with citations enabled, and cited text blocks in the response
-carry `char_location` citations pointing back at a document index.
+Citations come from the API's native citations feature: each `SourcePart` is sent as a
+`document` block with citations enabled, and cited text blocks in the response carry
+`char_location` citations pointing back at a document index.
 """
 
+import base64
 import logging
 import time
-from dataclasses import dataclass, field
-from functools import lru_cache
-from typing import Any, Protocol
+from collections.abc import Sequence
+from typing import Any
 
 import anthropic
 
-from app.core.config import get_settings
-from app.core.errors import AppError
+from app.core.config import Settings
+from app.llm.base import (
+    CitationSpan,
+    ImagePart,
+    LLMError,
+    LLMNotConfiguredError,
+    LLMRefusalError,
+    LLMResponse,
+    LLMTimeoutError,
+    LLMUnavailableError,
+    Message,
+    SourcePart,
+    TextPart,
+    TextStream,
+)
 
 logger = logging.getLogger(__name__)
 
 REFUSAL_FALLBACK_BETA = "server-side-fallback-2026-07-01"
 
 
-class LLMError(AppError):
-    """A generation failure. The message is safe to show to users; rendered by the AppError handler."""
-
-    status_code = 502
-    code = "llm_error"
-    message = "The AI model could not generate an answer."
-
-
-class LLMNotConfiguredError(LLMError):
-    status_code = 503
-    code = "llm_not_configured"
-
-
-class LLMUnavailableError(LLMError):
-    status_code = 503
-    code = "llm_unavailable"
-
-
-class LLMTimeoutError(LLMError):
-    status_code = 504
-    code = "llm_timeout"
-
-
-class LLMRefusalError(LLMError):
-    status_code = 422
-    code = "llm_refusal"
+def _to_anthropic_part(part: TextPart | ImagePart | SourcePart) -> dict[str, Any]:
+    if isinstance(part, TextPart):
+        return {"type": "text", "text": part.text}
+    if isinstance(part, ImagePart):
+        return {
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": part.media_type,
+                "data": base64.standard_b64encode(part.data).decode("ascii"),
+            },
+        }
+    # A citable source: a plain-text document block with native citations enabled.
+    block: dict[str, Any] = {
+        "type": "document",
+        "source": {"type": "text", "media_type": "text/plain", "data": part.text},
+        "citations": {"enabled": True},
+    }
+    if part.title:
+        block["title"] = part.title
+    return block
 
 
-@dataclass(frozen=True, slots=True)
-class CitationSpan:
-    """A span of the answer text supported by a quote from one input document."""
-
-    document_index: int  # position of the document block in the request
-    cited_text: str
-    answer_start: int  # character offsets of the supporting span in `LLMResponse.text`
-    answer_end: int
-    # Offsets of `cited_text` within the document's text (plain-text documents); unverified.
-    source_start: int | None = None
-    source_end: int | None = None
-
-
-@dataclass(slots=True)
-class LLMResponse:
-    text: str
-    citations: list[CitationSpan]
-    model: str
-    stop_reason: str | None
-    input_tokens: int
-    output_tokens: int
-    latency_ms: float
-    request_id: str | None = None
-    truncated: bool = False
-    extra: dict[str, Any] = field(default_factory=dict)
-
-
-class TextStream(Protocol):
-    """Receives the answer as it is generated."""
-
-    async def text(self, delta: str) -> None: ...
-
-    async def restart(self) -> None:
-        """Discard the text received so far (a fallback model is taking over)."""
-
-
-class LLMClient(Protocol):
-    model_name: str
-
-    async def generate(
-        self,
-        *,
-        system: str,
-        messages: list[dict[str, Any]],
-        max_tokens: int | None = None,
-        effort: str | None = None,
-        stream: TextStream | None = None,
-    ) -> LLMResponse: ...
+def to_anthropic_messages(messages: Sequence[Message]) -> list[dict[str, Any]]:
+    """Neutral messages -> Messages API format. A text-only turn is sent as a plain string."""
+    converted = []
+    for message in messages:
+        if len(message.parts) == 1 and isinstance(message.parts[0], TextPart):
+            content: str | list[dict[str, Any]] = message.parts[0].text
+        else:
+            content = [_to_anthropic_part(part) for part in message.parts]
+        converted.append({"role": message.role, "content": content})
+    return converted
 
 
 def _parse_message(message: Any, latency_ms: float) -> LLMResponse:
@@ -167,6 +137,11 @@ def _parse_message(message: Any, latency_ms: float) -> LLMResponse:
 
 
 class ClaudeClient:
+    """`LLMProvider` for Anthropic's Claude."""
+
+    provider_name = "anthropic"
+    supports_images = True
+
     def __init__(
         self,
         client: anthropic.AsyncAnthropic,
@@ -186,14 +161,11 @@ class ClaudeClient:
         self,
         *,
         system: str,
-        messages: list[dict[str, Any]],
+        messages: Sequence[Message],
         max_tokens: int | None = None,
         effort: str | None = None,
         stream: TextStream | None = None,
     ) -> LLMResponse:
-        """`max_tokens` / `effort` override the client defaults for this call (e.g. short utility calls).
-        With `stream`, answer text is forwarded as it is generated; the returned response is
-        still the complete, authoritative answer."""
         options: dict[str, Any] = {}
         effort = self._effort if effort is None else effort
         if effort:
@@ -208,7 +180,7 @@ class ClaudeClient:
                 model=self.model_name,
                 max_tokens=max_tokens or self._max_tokens,
                 system=system,
-                messages=messages,
+                messages=to_anthropic_messages(messages),
                 **options,
             ) as events:
                 if stream is not None:
@@ -258,26 +230,12 @@ class ClaudeClient:
             )
             raise LLMRefusalError("The AI model declined to answer this request.")
 
-        response = _parse_message(message, latency_ms)
-        logger.info(
-            "llm_completed",
-            extra={
-                "model": response.model,
-                "stop_reason": response.stop_reason,
-                "input_tokens": response.input_tokens,
-                "output_tokens": response.output_tokens,
-                "citations": len(response.citations),
-                "llm_ms": latency_ms,
-                "anthropic_request_id": response.request_id,
-            },
-        )
-        return response
+        # Usage and latency are logged for every call by the provider wrapper (app/core/ai_calls.py).
+        return _parse_message(message, latency_ms)
 
 
-@lru_cache
-def get_llm_client() -> LLMClient:
-    """The configured client. Raises LLMNotConfiguredError when LLM_API_KEY is not set."""
-    settings = get_settings()
+def create_claude_provider(settings: Settings) -> ClaudeClient:
+    """Raises LLMNotConfiguredError when LLM_API_KEY is not set."""
     if settings.llm_api_key is None:
         raise LLMNotConfiguredError(
             "The AI model is not configured. Set LLM_API_KEY (an Anthropic API key) in .env and restart."

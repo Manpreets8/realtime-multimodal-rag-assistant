@@ -16,7 +16,6 @@ from app.core.config import Settings, get_settings
 
 logger = logging.getLogger(__name__)
 
-PRODUCT_NAME = "Mindora AI"
 # Waits before the 2nd and 3rd attempts. Only temporary failures (connection problems,
 # timeouts, 4xx replies) are retried; a 5xx reply such as bad credentials is not.
 RETRY_DELAYS_SECONDS: tuple[float, ...] = (5.0, 30.0)
@@ -39,17 +38,18 @@ _FOOTER = "padding:16px 28px;border-top:1px solid #e2e8f0;font-size:12px;color:#
 def build_welcome_email(to: str, full_name: str | None, settings: Settings) -> EmailMessage:
     """A plain-text welcome email with an HTML alternative (both say the same thing)."""
     greeting_name = full_name.strip() if full_name and full_name.strip() else "there"
+    product = settings.app_name
     link = settings.app_public_url.rstrip("/")
 
     message = EmailMessage()
-    message["Subject"] = f"Welcome to {PRODUCT_NAME}"
+    message["Subject"] = f"Welcome to {product}"
     message["From"] = settings.email_sender
     message["To"] = to
 
     message.set_content(
         f"Hi {greeting_name},\n\n"
-        f"Welcome to {PRODUCT_NAME}! Your account is ready.\n\n"
-        f"{PRODUCT_NAME} is an AI assistant that answers questions from your own documents. "
+        f"Welcome to {product}! Your account is ready.\n\n"
+        f"{product} is an AI assistant that answers questions from your own documents. "
         "Upload PDFs, Word files or notes into a knowledge base, then ask questions in plain "
         "language, by typing, speaking or sharing an image. Every answer cites the exact "
         "passages it came from, so you can check it.\n\n"
@@ -57,13 +57,14 @@ def build_welcome_email(to: str, full_name: str | None, settings: Settings) -> E
         "  1. Create a knowledge base\n"
         "  2. Upload your documents\n"
         "  3. Ask your first question\n\n"
-        f"Open {PRODUCT_NAME}: {link}\n\n"
-        f"You received this email because this address was used to sign up for {PRODUCT_NAME}. "
+        f"Open {product}: {link}\n\n"
+        f"You received this email because this address was used to sign up for {product}. "
         "If that wasn't you, you can ignore it.\n"
     )
 
     name = html.escape(greeting_name)
     href = html.escape(link, quote=True)
+    product_html = html.escape(product)
     message.add_alternative(
         f"""<!doctype html>
 <html>
@@ -71,11 +72,11 @@ def build_welcome_email(to: str, full_name: str | None, settings: Settings) -> E
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="{_OUTER}">
     <tr><td align="center">
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="{_CARD}">
-        <tr><td style="{_HEADER}">{PRODUCT_NAME}</td></tr>
+        <tr><td style="{_HEADER}">{product_html}</td></tr>
         <tr><td style="{_BODY}">
           <p style="{_P}">Hi {name},</p>
-          <p style="{_P}">Welcome to {PRODUCT_NAME}! Your account is ready.</p>
-          <p style="{_P}">{PRODUCT_NAME} is an AI assistant that answers questions from your own
+          <p style="{_P}">Welcome to {product_html}! Your account is ready.</p>
+          <p style="{_P}">{product_html} is an AI assistant that answers questions from your own
             documents. Upload PDFs, Word files or notes into a knowledge base, then ask questions in
             plain language, by typing, speaking or sharing an image. Every answer cites the exact
             passages it came from, so you can check it.</p>
@@ -85,10 +86,10 @@ def build_welcome_email(to: str, full_name: str | None, settings: Settings) -> E
             <li>Upload your documents</li>
             <li>Ask your first question</li>
           </ol>
-          <a href="{href}" style="{_BUTTON}">Open {PRODUCT_NAME}</a>
+          <a href="{href}" style="{_BUTTON}">Open {product_html}</a>
         </td></tr>
         <tr><td style="{_FOOTER}">
-          You received this email because this address was used to sign up for {PRODUCT_NAME}.
+          You received this email because this address was used to sign up for {product_html}.
           If that wasn't you, you can ignore it.
         </td></tr>
       </table>
