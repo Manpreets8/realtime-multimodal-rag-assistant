@@ -6,7 +6,7 @@ Mindora AI is a real-time multimodal RAG assistant. Ask questions about your own
 
 Built as a full-stack, production-minded application: FastAPI and PostgreSQL/pgvector behind a React app, a Redis-backed worker for document processing, local models for embeddings, reranking, speech-to-text and text-to-speech, Claude for answers and image understanding, an evaluation harness, and a Docker setup that deploys with HTTPS.
 
-> **Status.** All 17 build phases are complete. Everything described here is implemented and tested: **460 backend tests** at 94% line and branch coverage, and **126 frontend tests**. The Claude integration is tested against the real SDK with recorded HTTP responses, and has been checked end to end with a real Anthropic API key. The quality of Claude's answers has **not been measured yet**: the answer-quality evaluation is built but has not been run. Retrieval quality has been measured (see [Evaluation](#14-evaluation)).
+> **Status.** The original 17 build phases are complete, and the Mindora AI upgrade is in progress (phase 1 done). Everything described here is implemented and tested: **482 backend tests** and **126 frontend tests** (backend coverage was 94% when last measured, before the upgrade). The Claude integration is tested against the real SDK with recorded HTTP responses, and has been checked end to end with a real Anthropic API key. The quality of Claude's answers has **not been measured yet**: the answer-quality evaluation is built but has not been run. Retrieval quality has been measured (see [Evaluation](#14-evaluation)).
 
 **Contents:**
 1. [Overview](#1-project-overview)
@@ -115,7 +115,7 @@ backend/
     workers/        Redis job queue, ingestion worker, maintenance
     evaluation/     evaluation dataset, metrics, LLM judge, runner, report
   alembic/          database migrations
-  tests/            460 tests (unit, integration against real PostgreSQL/Redis, real-model tests)
+  tests/            482 tests (unit, integration against real PostgreSQL/Redis, real-model tests)
   Dockerfile
 frontend/
   src/

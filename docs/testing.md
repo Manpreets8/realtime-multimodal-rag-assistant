@@ -5,7 +5,7 @@ How the application is tested, and how to run the suites. Back to the [README](.
 ## Testing
 
 ```bash
-cd backend  && pytest                  # 460 tests: unit + integration + real-model tests; needs
+cd backend  && pytest                  # 482 tests: unit + integration + real-model tests; needs
                                        # `docker compose up -d postgres redis`. Integration tests use a separate
                                        # rag_assistant_test database and Redis database 15
 cd backend  && pytest -m "not integration and not model"   # no PostgreSQL, Redis or model download (~10 s)
