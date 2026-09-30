@@ -27,6 +27,15 @@ class DocumentRead(BaseModel):
     progress: IngestionProgress | None = None
 
 
+class DocumentListItem(DocumentRead):
+    knowledge_base_name: str
+
+
+class DocumentPage(BaseModel):
+    items: list[DocumentListItem]
+    total: int
+
+
 class SupportedFileType(BaseModel):
     extension: str
     content_type: str

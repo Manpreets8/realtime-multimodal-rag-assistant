@@ -8,8 +8,14 @@ from fastapi.responses import FileResponse
 from app.api.deps import CurrentUser, DbSession, Ingestion, Storage, UploadLimit
 from app.core.config import get_settings
 from app.core.errors import NotFoundError
-from app.models import Document, DocumentChunk
-from app.schemas.document import DocumentChunkRead, DocumentRead, SupportedFileType, UploadConfig
+from app.models import Document, DocumentChunk, DocumentStatus
+from app.schemas.document import (
+    DocumentChunkRead,
+    DocumentPage,
+    DocumentRead,
+    SupportedFileType,
+    UploadConfig,
+)
 from app.services import document_service, ingestion_service
 from app.utils.files import SUPPORTED_FILE_TYPES
 
@@ -17,6 +23,24 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/documents", tags=["documents"])
 
 _NOT_FOUND = {404: {"description": "Document not found (or owned by another user)"}}
+
+
+@router.get(
+    "",
+    response_model=DocumentPage,
+    summary="All of your documents across knowledge bases (filter by status or filename)",
+)
+async def list_documents(
+    db: DbSession,
+    current_user: CurrentUser,
+    status: DocumentStatus | None = None,
+    search: Annotated[str | None, Query(max_length=255, description="Part of a filename")] = None,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> DocumentPage:
+    return await document_service.list_for_user(
+        db, current_user.id, status=status, search=search, limit=limit, offset=offset
+    )
 
 
 # Declared before "/{document_id}" so the literal path is matched first.

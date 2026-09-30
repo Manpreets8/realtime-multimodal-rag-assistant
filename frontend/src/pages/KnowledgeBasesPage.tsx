@@ -5,11 +5,13 @@ import { KnowledgeBaseFormDialog } from '../components/knowledge-bases/Knowledge
 import { ErrorAlert } from '../components/ui/Alert'
 import { Button } from '../components/ui/Button'
 import { useResource } from '../hooks/useResource'
+import { useToast } from '../hooks/useToast'
 import { createKnowledgeBase, listKnowledgeBases } from '../services/knowledgeBases'
 import { formatRelative, pluralize } from '../utils/format'
 
 export default function KnowledgeBasesPage() {
   const navigate = useNavigate()
+  const toast = useToast()
   const { data: knowledgeBases, error, loading, reload } = useResource(listKnowledgeBases)
   const [creating, setCreating] = useState(false)
 
@@ -77,6 +79,7 @@ export default function KnowledgeBasesPage() {
         onClose={() => setCreating(false)}
         onSubmit={async (input) => {
           const created = await createKnowledgeBase(input)
+          toast.success(`Created “${created.name}”. Upload documents to start asking questions.`)
           navigate(`/knowledge-bases/${created.id}`)
         }}
       />

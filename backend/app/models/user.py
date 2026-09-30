@@ -1,6 +1,6 @@
 from enum import StrEnum
 
-from sqlalchemy import Boolean, Enum, String
+from sqlalchemy import Boolean, Enum, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
@@ -33,6 +33,9 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         server_default=UserRole.USER.value,
         nullable=False,
     )
+
+    # Incremented to end every existing session at once (password change, "sign out everywhere").
+    session_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
 
     @property
     def is_admin(self) -> bool:

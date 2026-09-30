@@ -6,7 +6,7 @@ Mindora AI is a real-time multimodal RAG assistant. Ask questions about your own
 
 Built as a full-stack, production-minded application: FastAPI and PostgreSQL/pgvector behind a React app, a Redis-backed worker for document processing, local models for embeddings, reranking, speech-to-text and text-to-speech, Claude for answers and image understanding, an evaluation harness, and a Docker setup that deploys with HTTPS.
 
-> **Status.** The original 17 build phases are complete, and the Mindora AI upgrade is in progress (phases 1 and 2 done). Everything described here is implemented and tested: **493 backend tests** and **132 frontend tests** (backend coverage was 94% when last measured, before the upgrade). The Claude integration is tested against the real SDK with recorded HTTP responses, and has been checked end to end with a real Anthropic API key. The quality of Claude's answers has **not been measured yet**: the answer-quality evaluation is built but has not been run. Retrieval quality has been measured (see [Evaluation](#14-evaluation)).
+> **Status.** The original 17 build phases are complete, and the Mindora AI upgrade is in progress (phases 1–3 done). Everything described here is implemented and tested: **500 backend tests** and **150 frontend tests** (backend coverage was 94% when last measured, before the upgrade). The Claude integration is tested against the real SDK with recorded HTTP responses, and has been checked end to end with a real Anthropic API key. The quality of Claude's answers has **not been measured yet**: the answer-quality evaluation is built but has not been run. Retrieval quality has been measured (see [Evaluation](#14-evaluation)).
 
 **Contents:**
 1. [Overview](#1-project-overview)
@@ -60,7 +60,8 @@ What makes it more than a demo:
 | **Reliability** | Redis job queue with crash takeover, retries and a dead-letter stream. Periodic cleanup. Rate limits. Clear errors with a reference ID |
 | **Evaluation** | A 36-question labelled dataset. Retrieval metrics per strategy; answer, faithfulness and citation metrics with Claude as judge |
 | **Ops** | One-command Docker Compose. A production override with automatic HTTPS (Caddy). CI workflow. Health and readiness endpoints, structured JSON logs |
-| **UI** | Responsive (phone to desktop), light and dark themes, accessible: 0 axe-core WCAG 2.2 AA violations across all pages in both themes |
+| **Dashboard** | Real totals, chat answers and tokens over 30 days with a per-day chart, a recent-activity feed, and live system and AI-service status. A Documents page across all knowledge bases, and Settings (profile, password, sign out everywhere, theme) |
+| **UI** | Responsive (phone to desktop), light, dark or system theme, toast notifications, skeleton loading states, accessible: 0 axe-core WCAG 2.2 AA violations across all pages in both themes |
 
 ## 3. Architecture
 
@@ -115,7 +116,7 @@ backend/
     workers/        Redis job queue, ingestion worker, maintenance
     evaluation/     evaluation dataset, metrics, LLM judge, runner, report
   alembic/          database migrations
-  tests/            493 tests (unit, integration against real PostgreSQL/Redis, real-model tests)
+  tests/            500 tests (unit, integration against real PostgreSQL/Redis, real-model tests)
   Dockerfile
 frontend/
   src/
@@ -245,10 +246,11 @@ Interactive OpenAPI docs are served at `/docs` (Swagger UI) and `/redoc`; the sc
 
 | Area | Endpoints |
 |---|---|
-| Auth | `POST /auth/register`, `POST /auth/login`, `POST /auth/logout`, `GET /auth/me` |
+| Auth | `POST /auth/register`, `POST /auth/login`, `POST /auth/logout`, `GET/PATCH /auth/me`, `POST /auth/change-password`, `POST /auth/logout-all` |
+| Dashboard | `GET /dashboard` (totals, chat answers and tokens over 30 days, per-day counts, recent activity) |
 | Admin (administrators only) | `GET /admin/users` (search, counts), `PATCH /admin/users/{id}` (role, enable/disable) |
 | Knowledge bases | `POST /knowledge-bases`, `GET /knowledge-bases`, `GET/PATCH/DELETE /knowledge-bases/{id}`, `GET /knowledge-bases/{id}/documents` |
-| Documents | `POST /documents/upload`, `GET/DELETE /documents/{id}`, `POST /documents/{id}/reprocess`, `GET /documents/{id}/chunks`, `GET /documents/{id}/download`, `GET /chunks/{id}` |
+| Documents | `GET /documents` (all of yours, filter by status or filename), `POST /documents/upload`, `GET/DELETE /documents/{id}`, `POST /documents/{id}/reprocess`, `GET /documents/{id}/chunks`, `GET /documents/{id}/download`, `GET /chunks/{id}` |
 | Retrieval and answers | `POST /retrieval/search` (hybrid, vector or keyword), `POST /rag/answer` |
 | Chat | `POST /chat`, `GET /conversations`, `GET/PATCH/DELETE /conversations/{id}`, `WS /ws/chat` (streaming; [protocol](docs/multimodal.md#real-time-streaming-websocket)) |
 | Images | `POST /images`, `GET /images/{id}/content`, `DELETE /images/{id}`, `POST /multimodal/image` |

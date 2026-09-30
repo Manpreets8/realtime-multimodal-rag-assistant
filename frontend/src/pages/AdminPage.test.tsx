@@ -37,7 +37,7 @@ describe('AdminPage', () => {
     backend()
     renderSignedIn('/admin')
 
-    const bob = (await screen.findByText('Bob Stone')).closest('tr')!
+    const bob = (await screen.findByText('Bob Stone')).closest('li')!
     expect(within(bob).getByText('bob@example.com')).toBeInTheDocument()
     expect(within(bob).getByText('2 KB · 5 docs · 7 chats')).toBeInTheDocument()
     expect(within(bob).getByText('Active')).toBeInTheDocument()
@@ -48,7 +48,7 @@ describe('AdminPage', () => {
     backend()
     renderSignedIn('/admin')
 
-    const me = (await screen.findByText('You')).closest('tr')!
+    const me = (await screen.findByText('You')).closest('li')!
     expect(within(me).getByRole('combobox', { name: `Role for ${ADMIN.email}` })).toBeDisabled()
     expect(within(me).queryByRole('button', { name: /Disable/ })).not.toBeInTheDocument()
   })
@@ -61,7 +61,7 @@ describe('AdminPage', () => {
     await userEvent.type(screen.getByRole('searchbox', { name: 'Search accounts' }), 'bob')
     await userEvent.click(screen.getByRole('button', { name: 'Search' }))
 
-    await screen.findByRole('table')
+    await screen.findByText('Bob Stone')
     expect(requests(spy, 'GET', '/admin/users?').at(-1)![0]).toContain('search=bob')
   })
 
@@ -74,7 +74,7 @@ describe('AdminPage', () => {
     expect(requests(spy, 'PATCH', '/admin/users/')).toHaveLength(0)
     await userEvent.click(within(dialog).getByRole('button', { name: 'Disable account' }))
 
-    const bob = (await screen.findByText('Disabled')).closest('tr')!
+    const bob = (await screen.findByText('Disabled')).closest('li')!
     expect(within(bob).getByRole('button', { name: 'Enable bob@example.com' })).toBeInTheDocument()
     expect(JSON.parse(String(requests(spy, 'PATCH', '/admin/users/user-bob')[0][1]!.body))).toEqual({
       is_active: false,

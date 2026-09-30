@@ -7,6 +7,8 @@ import App from './App'
 import { tokenStorage } from './services/tokenStorage'
 import { HEALTHY_BACKEND, TEST_USER, errorEnvelope, json, mockFetch, tokenResponse } from './test/mockFetch'
 
+const GREETING = /^Good (morning|afternoon|evening), Ada$/
+
 function renderAt(path: string) {
   return render(
     <MemoryRouter initialEntries={[path]}>
@@ -30,7 +32,7 @@ describe('authentication flow', () => {
     await userEvent.type(screen.getByLabelText('Password'), 'secret-pass-1')
     await userEvent.click(screen.getByRole('button', { name: 'Sign in' }))
 
-    expect(await screen.findByRole('heading', { name: 'Welcome, Ada' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: GREETING })).toBeInTheDocument()
     expect(tokenStorage.get()).toBe('token-login')
     const [, init] = fetchSpy.mock.calls.find(([url]) => String(url).endsWith('/auth/login'))!
     expect(JSON.parse(String(init?.body))).toEqual({ email: 'ada@example.com', password: 'secret-pass-1' })
@@ -72,7 +74,7 @@ describe('authentication flow', () => {
     await userEvent.type(screen.getByLabelText('Confirm password'), 'analytical1')
     await userEvent.click(screen.getByRole('button', { name: 'Create account' }))
 
-    expect(await screen.findByRole('heading', { name: 'Welcome, Ada' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: GREETING })).toBeInTheDocument()
     expect(tokenStorage.get()).toBe('token-new')
   })
 
@@ -95,7 +97,7 @@ describe('authentication flow', () => {
     const fetchSpy = mockFetch({ ...HEALTHY_BACKEND, 'GET /auth/me': () => json(TEST_USER) })
     renderAt('/')
 
-    expect(await screen.findByRole('heading', { name: 'Welcome, Ada' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: GREETING })).toBeInTheDocument()
     const [, init] = fetchSpy.mock.calls.find(([url]) => String(url).endsWith('/auth/me'))!
     expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer stored-token')
   })
@@ -130,7 +132,7 @@ describe('authentication flow', () => {
     mockFetch({ ...HEALTHY_BACKEND, 'GET /auth/me': () => json(TEST_USER) })
     renderAt('/login')
 
-    await waitFor(() => expect(screen.getByRole('heading', { name: 'Welcome, Ada' })).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByRole('heading', { name: GREETING })).toBeInTheDocument())
   })
 
   it('shows a not-found page for unknown addresses', async () => {

@@ -35,6 +35,36 @@ export const HEALTHY_BACKEND: Record<string, Handler> = {
       checks: { database: true, pgvector: true },
       services: { redis: true, ingestion_workers: 1, ingestion_waiting: 0 },
     }),
+  'GET /dashboard': () => json(dashboardResponse()),
+  'GET /knowledge-bases': () => json([]),
+  'GET /conversations': () => json([]),
+  'GET /system/providers': () =>
+    json({
+      app: 'Mindora AI',
+      tagline: 'Your knowledge. One intelligent AI.',
+      providers: [
+        { capability: 'llm', provider: 'anthropic', model: 'claude-opus-5', runs: 'api', configured: true },
+        { capability: 'reranking', provider: 'none', model: '', runs: 'off', configured: true },
+      ],
+    }),
+}
+
+/** A dashboard with no activity, for tests that land on "/" without caring about its content. */
+export function dashboardResponse(overrides: { stats?: object; activity?: unknown[] } = {}) {
+  const days = Array.from({ length: 14 }, (_, index) => ({
+    date: new Date(Date.UTC(2026, 8, 17 + index)).toISOString().slice(0, 10),
+    count: 0,
+  }))
+  return {
+    stats: {
+      knowledge_bases: 0,
+      documents: { total: 0, indexed: 0, processing: 0, failed: 0 },
+      conversations: 0,
+      ai_answers: { days: 30, answers: 0, input_tokens: 0, output_tokens: 0, by_day: days },
+      ...overrides.stats,
+    },
+    activity: overrides.activity ?? [],
+  }
 }
 
 export const TEST_USER = {

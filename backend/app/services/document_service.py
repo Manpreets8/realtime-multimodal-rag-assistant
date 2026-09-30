@@ -5,15 +5,15 @@ import uuid
 from collections.abc import AsyncIterator, Sequence
 
 from fastapi import UploadFile
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
 from app.core.config import get_settings
 from app.core.errors import ConflictError, InvalidDocumentError, NotFoundError
-from app.models import Document, DocumentChunk, DocumentStatus
-from app.schemas.document import ChunkContext, ContextChunk, DocumentRead
+from app.models import Document, DocumentChunk, DocumentStatus, KnowledgeBase
+from app.schemas.document import ChunkContext, ContextChunk, DocumentListItem, DocumentPage, DocumentRead
 from app.services import ingestion_progress, knowledge_base_service
 from app.services.storage import LocalFileStorage
 from app.utils.files import resolve_file_type, sanitize_filename, validate_file_content
@@ -106,6 +106,42 @@ async def list_for_knowledge_base(
         .offset(offset)
     )
     return list(result)
+
+
+async def list_for_user(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    *,
+    status: DocumentStatus | None,
+    search: str | None,
+    limit: int,
+    offset: int,
+) -> DocumentPage:
+    """All of the user's documents across knowledge bases, newest first."""
+    conditions = [Document.user_id == user_id]
+    if status is not None:
+        conditions.append(Document.status == status)
+    if search and search.strip():
+        escaped = search.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        conditions.append(Document.filename.ilike(f"%{escaped}%", escape="\\"))
+
+    rows = (
+        await db.execute(
+            select(Document, KnowledgeBase.name)
+            .join(KnowledgeBase, Document.knowledge_base_id == KnowledgeBase.id)
+            .where(*conditions)
+            .order_by(Document.created_at.desc(), Document.id)
+            .limit(limit)
+            .offset(offset)
+        )
+    ).all()
+    total = await db.scalar(select(func.count(Document.id)).where(*conditions)) or 0
+    documents = await with_progress([document for document, _ in rows])
+    items = [
+        DocumentListItem(**document.model_dump(), knowledge_base_name=name)
+        for document, (_, name) in zip(documents, rows, strict=True)
+    ]
+    return DocumentPage(items=items, total=total)
 
 
 async def get_owned(db: AsyncSession, user_id: uuid.UUID, document_id: uuid.UUID) -> Document:

@@ -12,6 +12,7 @@ import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 import { useDocumentUploads } from '../hooks/useDocumentUploads'
 import { usePolling } from '../hooks/usePolling'
 import { useResource } from '../hooks/useResource'
+import { useToast } from '../hooks/useToast'
 import { ApiError } from '../services/api'
 import {
   STATUS_POLL_INTERVAL_MS,
@@ -98,6 +99,7 @@ function ProcessingDetails({ type, progress }: { type: string; progress: Ingesti
 export default function KnowledgeBaseDetailPage() {
   const { kbId = '' } = useParams()
   const navigate = useNavigate()
+  const toast = useToast()
   const [searchParams, setSearchParams] = useSearchParams()
   const activeTab: TabId = TABS.find((tab) => tab.id === searchParams.get('tab'))?.id ?? 'documents'
 
@@ -159,6 +161,7 @@ export default function KnowledgeBaseDetailPage() {
     try {
       const updated = await reprocessDocument(document.id)
       setDocuments((prev) => prev?.map((d) => (d.id === updated.id ? updated : d)) ?? null)
+      toast.success(`Processing “${document.filename}” again.`)
     } catch (err) {
       setActionError(err instanceof ApiError ? err.message : 'Could not retry processing.')
     }
@@ -365,6 +368,7 @@ export default function KnowledgeBaseDetailPage() {
         onClose={() => setEditing(false)}
         onSubmit={async (input) => {
           kb.setData(await updateKnowledgeBase(kbId, input))
+          toast.success('Knowledge base saved.')
         }}
       />
 
@@ -381,6 +385,7 @@ export default function KnowledgeBaseDetailPage() {
         onClose={() => setDeletingKb(false)}
         onConfirm={async () => {
           await deleteKnowledgeBase(kbId)
+          toast.success(`Deleted “${kb.data?.name ?? 'knowledge base'}”.`)
           navigate('/knowledge-bases', { replace: true })
         }}
       />
@@ -400,6 +405,7 @@ export default function KnowledgeBaseDetailPage() {
           await deleteDocument(deletingDocument.id)
           documents.setData((prev) => prev?.filter((d) => d.id !== deletingDocument.id) ?? null)
           kb.setData((prev) => (prev ? { ...prev, document_count: Math.max(0, prev.document_count - 1) } : prev))
+          toast.success(`Deleted “${deletingDocument.filename}”.`)
         }}
       />
     </div>

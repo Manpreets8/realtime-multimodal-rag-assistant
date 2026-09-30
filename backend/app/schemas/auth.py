@@ -15,26 +15,39 @@ def _normalise_email(value: str) -> str:
     return value.strip().lower()
 
 
+def _password_strength(value: str) -> str:
+    if not re.search(r"[A-Za-z]", value) or not re.search(r"\d", value):
+        raise ValueError("Password must contain at least one letter and one number.")
+    return value
+
+
+def _blank_name_to_none(value: str | None) -> str | None:
+    if value is None:
+        return None
+    return value.strip() or None
+
+
 class RegisterRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=PASSWORD_MIN_LENGTH, max_length=PASSWORD_MAX_LENGTH)
     full_name: str | None = Field(default=None, max_length=120)
 
     _normalise = field_validator("email", mode="after")(_normalise_email)
+    _strong = field_validator("password")(_password_strength)
+    _name = field_validator("full_name")(_blank_name_to_none)
 
-    @field_validator("password")
-    @classmethod
-    def _password_strength(cls, value: str) -> str:
-        if not re.search(r"[A-Za-z]", value) or not re.search(r"\d", value):
-            raise ValueError("Password must contain at least one letter and one number.")
-        return value
 
-    @field_validator("full_name")
-    @classmethod
-    def _blank_name_to_none(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        return value.strip() or None
+class ProfileUpdate(BaseModel):
+    full_name: str | None = Field(max_length=120)
+
+    _name = field_validator("full_name")(_blank_name_to_none)
+
+
+class PasswordChange(BaseModel):
+    current_password: str = Field(min_length=1, max_length=PASSWORD_MAX_LENGTH)
+    new_password: str = Field(min_length=PASSWORD_MIN_LENGTH, max_length=PASSWORD_MAX_LENGTH)
+
+    _strong = field_validator("new_password")(_password_strength)
 
 
 class LoginRequest(BaseModel):

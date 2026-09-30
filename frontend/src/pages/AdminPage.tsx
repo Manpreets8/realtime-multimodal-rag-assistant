@@ -3,14 +3,19 @@ import { useCallback, useState, type FormEvent } from 'react'
 import { ErrorAlert } from '../components/ui/Alert'
 import { Button } from '../components/ui/Button'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
+import { Skeleton } from '../components/ui/Skeleton'
 import { useAuth } from '../hooks/useAuth'
 import { useResource } from '../hooks/useResource'
+import { useToast } from '../hooks/useToast'
 import { listUsers, updateUser, type AdminUser, type AdminUserUpdate } from '../services/admin'
 import { ApiError } from '../services/api'
 import type { UserRole } from '../services/auth'
 import { formatDateTime } from '../utils/format'
 
 const PAGE_SIZE = 25
+const GRID = 'md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1.3fr)_minmax(0,1.5fr)_minmax(0,1.1fr)]'
+// Labels each field on phones; on wide screens the column headings do.
+const MOBILE_LABEL = 'text-xs font-medium text-slate-500 md:hidden dark:text-slate-400'
 
 interface PendingChange {
   user: AdminUser
@@ -34,6 +39,7 @@ function StatusBadge({ active }: { active: boolean }) {
 
 export default function AdminPage() {
   const { user: me } = useAuth()
+  const toast = useToast()
   const [query, setQuery] = useState('')
   const [search, setSearch] = useState('')
   const [offset, setOffset] = useState(0)
@@ -55,6 +61,9 @@ export default function AdminPage() {
     setData((current) =>
       current ? { ...current, items: current.items.map((row) => (row.id === saved.id ? saved : row)) } : current,
     )
+    const who = saved.full_name || saved.email
+    if (update.role) toast.success(`${who} is now ${saved.role === 'admin' ? 'an administrator' : 'a regular user'}.`)
+    if (update.is_active !== undefined) toast.success(`${who} was ${saved.is_active ? 'enabled' : 'disabled'}.`)
   }
 
   /** Changes that give or take away access are confirmed first; the reverse applies at once. */
@@ -127,87 +136,87 @@ export default function AdminPage() {
         {actionError && <ErrorAlert>{actionError}</ErrorAlert>}
       </div>
 
-      <section aria-label="Accounts" className="mt-4 overflow-x-auto rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
-        <table className="w-full min-w-[720px] text-left text-sm">
-          <thead className="border-b border-slate-200 text-xs text-slate-500 uppercase dark:border-slate-800 dark:text-slate-400">
-            <tr>
-              <th scope="col" className="px-4 py-3 font-medium">Account</th>
-              <th scope="col" className="px-4 py-3 font-medium">Role</th>
-              <th scope="col" className="px-4 py-3 font-medium">Status</th>
-              <th scope="col" className="px-4 py-3 font-medium">Activity</th>
-              <th scope="col" className="px-4 py-3 font-medium">Joined</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-            {loading && !data
-              ? Array.from({ length: 3 }, (_, index) => (
-                  <tr key={index} aria-hidden>
-                    <td colSpan={5} className="px-4 py-4">
-                      <div className="h-4 w-2/3 animate-pulse rounded bg-slate-100 dark:bg-slate-800" />
-                    </td>
-                  </tr>
-                ))
-              : rows.map((row) => {
-                  const isMe = row.id === me?.id
-                  const busy = savingId === row.id
-                  return (
-                    <tr key={row.id}>
-                      <td className="px-4 py-3">
-                        <p className="font-medium">
-                          {row.full_name || row.email}
-                          {isMe && (
-                            <span className="ml-2 rounded-full bg-brand-50 px-2 py-0.5 text-xs font-medium text-brand-700 dark:bg-brand-500/15 dark:text-brand-100">
-                              You
-                            </span>
-                          )}
-                        </p>
-                        {row.full_name && <p className="text-xs text-slate-500 dark:text-slate-400">{row.email}</p>}
-                      </td>
-                      <td className="px-4 py-3">
-                        <select
-                          aria-label={`Role for ${row.email}`}
-                          value={row.role}
-                          disabled={isMe || busy}
-                          title={isMe ? "You can't change your own role" : undefined}
-                          onChange={(event) => void change(row, { role: event.target.value as UserRole })}
-                          className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-sm disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900"
+      {/* One list for every screen size: columns on wide screens, stacked cards on phones. */}
+      <section aria-label="Accounts" aria-busy={loading} className="mt-4 rounded-xl border border-slate-200 bg-white text-sm dark:border-slate-800 dark:bg-slate-900">
+        <div aria-hidden className={`${GRID} hidden border-b border-slate-200 px-4 py-3 text-xs font-medium text-slate-500 uppercase md:grid dark:border-slate-800 dark:text-slate-400`}>
+          <span>Account</span>
+          <span>Role</span>
+          <span>Status</span>
+          <span>Activity</span>
+          <span>Joined</span>
+        </div>
+        {loading && !data ? (
+          <div className="space-y-3 p-4">
+            {Array.from({ length: 3 }, (_, index) => (
+              <Skeleton key={index} className="h-10 w-full" />
+            ))}
+          </div>
+        ) : data && rows.length === 0 ? (
+          <p className="px-4 py-8 text-center text-slate-500 dark:text-slate-400">No accounts match “{search}”.</p>
+        ) : (
+          <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+            {rows.map((row) => {
+              const isMe = row.id === me?.id
+              const busy = savingId === row.id
+              return (
+                <li key={row.id} className={`${GRID} grid gap-3 px-4 py-4 md:items-center md:gap-4 md:py-3`}>
+                  <div className="min-w-0">
+                    <p className="truncate font-medium">
+                      {row.full_name || row.email}
+                      {isMe && (
+                        <span className="ml-2 rounded-full bg-brand-50 px-2 py-0.5 text-xs font-medium text-brand-700 dark:bg-brand-500/15 dark:text-brand-100">
+                          You
+                        </span>
+                      )}
+                    </p>
+                    {row.full_name && <p className="truncate text-xs text-slate-500 dark:text-slate-400">{row.email}</p>}
+                  </div>
+                  <div className="flex items-center justify-between gap-3 md:block">
+                    <span className={MOBILE_LABEL}>Role</span>
+                    <select
+                      aria-label={`Role for ${row.email}`}
+                      value={row.role}
+                      disabled={isMe || busy}
+                      title={isMe ? "You can't change your own role" : undefined}
+                      onChange={(event) => void change(row, { role: event.target.value as UserRole })}
+                      className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-sm disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900"
+                    >
+                      <option value="user">User</option>
+                      <option value="admin">Administrator</option>
+                    </select>
+                  </div>
+                  <div className="flex items-center justify-between gap-3 md:justify-start">
+                    <span className={MOBILE_LABEL}>Status</span>
+                    <div className="flex items-center gap-2">
+                      <StatusBadge active={row.is_active} />
+                      {!isMe && (
+                        <Button
+                          variant="ghost"
+                          className="px-2 py-1 text-xs"
+                          disabled={busy}
+                          onClick={() => void change(row, { is_active: !row.is_active })}
+                          aria-label={`${row.is_active ? 'Disable' : 'Enable'} ${row.email}`}
                         >
-                          <option value="user">User</option>
-                          <option value="admin">Administrator</option>
-                        </select>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <StatusBadge active={row.is_active} />
-                          {!isMe && (
-                            <Button
-                              variant="ghost"
-                              className="px-2 py-1 text-xs"
-                              disabled={busy}
-                              onClick={() => void change(row, { is_active: !row.is_active })}
-                              aria-label={`${row.is_active ? 'Disable' : 'Enable'} ${row.email}`}
-                            >
-                              {row.is_active ? 'Disable' : 'Enable'}
-                            </Button>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 text-slate-600 dark:text-slate-400">
-                        {row.knowledge_bases} KB · {row.documents} docs · {row.conversations} chats
-                      </td>
-                      <td className="px-4 py-3 text-slate-600 dark:text-slate-400">{formatDateTime(row.created_at)}</td>
-                    </tr>
-                  )
-                })}
-            {data && rows.length === 0 && (
-              <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-slate-500 dark:text-slate-400">
-                  No accounts match “{search}”.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+                          {row.is_active ? 'Disable' : 'Enable'}
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between gap-3 text-slate-600 md:block dark:text-slate-400">
+                    <span className={MOBILE_LABEL}>Activity</span>
+                    <span>
+                      {row.knowledge_bases} KB · {row.documents} docs · {row.conversations} chats
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3 text-slate-600 md:block dark:text-slate-400">
+                    <span className={MOBILE_LABEL}>Joined</span>
+                    <span>{formatDateTime(row.created_at)}</span>
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
+        )}
       </section>
 
       {total > 0 && (

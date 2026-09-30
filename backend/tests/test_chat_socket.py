@@ -310,6 +310,18 @@ async def test_logging_out_ends_the_socket_session(
     assert llm.calls == []
 
 
+async def test_signing_out_everywhere_ends_an_open_socket(
+    app: FastAPI, client: AsyncClient, alice_token: str, llm: ScriptedLLM
+) -> None:
+    async with websocket(app, token=alice_token) as ws:
+        await client.post("/api/v1/auth/logout-all", headers=bearer(alice_token))
+        await ws.send_json({"type": "chat", "id": "after", "message": "Still there?"})
+        events, code = await ws.expect_close()
+
+    assert code == 4401 and "signed out" in events[0]["error"]["message"]
+    assert llm.calls == []
+
+
 async def test_other_users_conversations_and_knowledge_bases_are_not_found(
     app: FastAPI,
     client: AsyncClient,

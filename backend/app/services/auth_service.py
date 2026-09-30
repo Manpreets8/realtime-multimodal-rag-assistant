@@ -7,10 +7,10 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.errors import ConflictError, ForbiddenError, UnauthorizedError
+from app.core.errors import AppError, ConflictError, ForbiddenError, UnauthorizedError
 from app.core.security import TokenPayload, hash_password, verify_password
 from app.models import RevokedToken, User
-from app.schemas.auth import LoginRequest, RegisterRequest
+from app.schemas.auth import LoginRequest, PasswordChange, ProfileUpdate, RegisterRequest
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +53,45 @@ async def authenticate_user(db: AsyncSession, data: LoginRequest) -> User:
         user.hashed_password = new_hash
         await db.commit()
     logger.info("login_succeeded", extra={"user_id": str(user.id)})
+    return user
+
+
+class WrongPasswordError(AppError):
+    # Not 401: the caller is signed in, and a 401 would end their session in the app.
+    status_code = 400
+    code = "wrong_password"
+    message = "Your current password is incorrect."
+
+
+async def update_profile(db: AsyncSession, user: User, data: ProfileUpdate) -> User:
+    user.full_name = data.full_name
+    await db.commit()
+    await db.refresh(user)
+    return user
+
+
+async def end_other_sessions(db: AsyncSession, user: User) -> User:
+    """Invalidate every token issued so far; the caller gets a new one for this session."""
+    user.session_version += 1
+    await db.commit()
+    await db.refresh(user)
+    logger.info("sessions_ended", extra={"user_id": str(user.id)})
+    return user
+
+
+async def change_password(db: AsyncSession, user: User, data: PasswordChange) -> User:
+    valid, _ = await verify_password(data.current_password, user.hashed_password)
+    if not valid:
+        logger.info("password_change_rejected", extra={"user_id": str(user.id)})
+        raise WrongPasswordError()
+    if data.new_password == data.current_password:
+        raise AppError("Choose a password different from your current one.")
+    user.hashed_password = await hash_password(data.new_password)
+    # A changed password signs out every other session (e.g. a device it may have leaked from).
+    user.session_version += 1
+    await db.commit()
+    await db.refresh(user)
+    logger.info("password_changed", extra={"user_id": str(user.id)})
     return user
 
 

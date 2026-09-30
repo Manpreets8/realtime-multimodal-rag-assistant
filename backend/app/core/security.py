@@ -24,6 +24,9 @@ class TokenPayload:
     subject: uuid.UUID
     jti: str
     expires_at: datetime
+    # The account's session version when the token was issued; a password change (or "sign out
+    # everywhere") increments the account's version, which invalidates every older token.
+    session_version: int = 0
 
 
 class InvalidTokenError(Exception):
@@ -43,7 +46,7 @@ async def verify_password(password: str, hashed_password: str | None) -> tuple[b
     return await run_in_threadpool(_password_hash.verify_and_update, password, hashed_password)
 
 
-def create_access_token(user_id: uuid.UUID) -> tuple[str, int]:
+def create_access_token(user_id: uuid.UUID, session_version: int = 0) -> tuple[str, int]:
     """Return (encoded_jwt, lifetime_in_seconds)."""
     settings = get_settings()
     lifetime = timedelta(minutes=settings.access_token_expire_minutes)
@@ -52,6 +55,7 @@ def create_access_token(user_id: uuid.UUID) -> tuple[str, int]:
         "sub": str(user_id),
         "jti": uuid.uuid4().hex,
         "type": ACCESS_TOKEN_TYPE,
+        "ver": session_version,
         "iat": now,
         "exp": now + lifetime,
     }
@@ -75,6 +79,7 @@ def decode_access_token(token: str) -> TokenPayload:
             subject=uuid.UUID(claims["sub"]),
             jti=str(claims["jti"]),
             expires_at=datetime.fromtimestamp(claims["exp"], UTC),
+            session_version=int(claims.get("ver", 0)),  # tokens from before versioning count as 0
         )
     except (jwt.PyJWTError, ValueError, KeyError) as exc:
         raise InvalidTokenError(str(exc)) from exc

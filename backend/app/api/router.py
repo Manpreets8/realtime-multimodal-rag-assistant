@@ -6,6 +6,7 @@ from app.api.routes import (
     chat,
     chat_socket,
     chunks,
+    dashboard,
     documents,
     health,
     images,
@@ -32,3 +33,4 @@ api_router.include_router(images.multimodal_router)
 api_router.include_router(voice.router)
 api_router.include_router(system.router)
 api_router.include_router(admin.router)
+api_router.include_router(dashboard.router)

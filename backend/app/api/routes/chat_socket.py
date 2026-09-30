@@ -190,6 +190,8 @@ class ChatConnection:
             user = await auth_service.get_active_user(db, payload.subject)
         if user is None:
             raise UnauthorizedError("Your session is invalid or has expired. Please log in again.")
+        if payload.session_version != user.session_version:
+            raise UnauthorizedError("You were signed out because your password or sessions changed.")
         return user.id
 
     async def _reject(self, exc: UnauthorizedError) -> None:

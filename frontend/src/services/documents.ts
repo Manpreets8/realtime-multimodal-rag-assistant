@@ -107,3 +107,25 @@ export function uploadDocument(knowledgeBaseId: string, file: File, options: Upl
   form.append('file', file)
   return uploadForm<DocumentItem>('/documents/upload', form, options)
 }
+
+export interface DocumentListItem extends DocumentItem {
+  knowledge_base_name: string
+}
+
+export interface DocumentPage {
+  items: DocumentListItem[]
+  total: number
+}
+
+/** All of the user's documents across knowledge bases. */
+export function listAllDocuments(params: {
+  status?: DocumentStatus
+  search?: string
+  limit: number
+  offset: number
+}): Promise<DocumentPage> {
+  const query = new URLSearchParams({ limit: String(params.limit), offset: String(params.offset) })
+  if (params.status) query.set('status', params.status)
+  if (params.search) query.set('search', params.search)
+  return apiRequest<DocumentPage>(`/documents?${query}`)
+}

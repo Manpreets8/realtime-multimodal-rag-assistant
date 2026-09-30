@@ -11,6 +11,7 @@ import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 import { useImageAttachments, type Attachment } from '../hooks/useImageAttachments'
 import { useResource } from '../hooks/useResource'
 import { useVoiceRecorder } from '../hooks/useVoiceRecorder'
+import { useToast } from '../hooks/useToast'
 import { ApiError } from '../services/api'
 import {
   deleteConversation,
@@ -146,6 +147,7 @@ export default function ChatPage() {
   const { conversationId } = useParams()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
+  const toast = useToast()
 
   const conversations = useResource(listConversations)
   const knowledgeBases = useResource(listKnowledgeBases)
@@ -588,6 +590,7 @@ export default function ChatPage() {
           if (!deleting) return
           await deleteConversation(deleting.id)
           setConversations((prev) => prev?.filter((c) => c.id !== deleting.id) ?? null)
+          toast.success('Conversation deleted.')
           if (deleting.id === conversationId) navigate('/chat', { replace: true })
         }}
       />

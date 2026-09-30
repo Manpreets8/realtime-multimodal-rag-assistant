@@ -23,6 +23,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setStatus('authenticated')
   }, [])
 
+  /** A new token for the current session (older tokens were invalidated): the chat socket
+   * authenticated with the old one, so it is closed and reconnects with the new token. */
+  const replaceToken = useCallback(
+    (response: authApi.TokenResponse) => {
+      closeChatSocket()
+      startSession(response)
+    },
+    [startSession],
+  )
+
   // Any 401 on an authenticated request (expired/revoked token) ends the session.
   useEffect(() => {
     setUnauthorizedHandler(clearSession)
@@ -68,9 +78,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [clearSession])
 
+  const updateProfile = useCallback(async (fullName: string | null) => {
+    setUser(await authApi.updateProfile(fullName))
+  }, [])
+
+  const changePassword = useCallback(
+    async (currentPassword: string, newPassword: string) =>
+      replaceToken(await authApi.changePassword(currentPassword, newPassword)),
+    [replaceToken],
+  )
+
+  const signOutOtherSessions = useCallback(async () => replaceToken(await authApi.logoutAll()), [replaceToken])
+
   const value = useMemo<AuthContextValue>(
-    () => ({ status, user, login, register, logout }),
-    [status, user, login, register, logout],
+    () => ({ status, user, login, register, logout, updateProfile, changePassword, signOutOtherSessions }),
+    [status, user, login, register, logout, updateProfile, changePassword, signOutOtherSessions],
   )
 
   return <AuthContext value={value}>{children}</AuthContext>
