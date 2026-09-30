@@ -7,7 +7,7 @@ export const STATUS_POLL_INTERVAL_MS = 2000
 
 /** Live detail while a worker processes the document (kept in Redis, may be absent). */
 export interface IngestionProgress {
-  stage: 'extracting' | 'chunking' | 'embedding' | 'saving'
+  stage: 'extracting' | 'chunking' | 'embedding' | 'indexing'
   done: number
   total: number
   updated_at: number
@@ -25,12 +25,38 @@ export interface DocumentItem {
   size_bytes: number
   status: DocumentStatus
   error_message: string | null
+  /** Why processing failed (e.g. password_protected, no_text, embedding_failed); see DocumentIntelligence. */
+  error_code?: string | null
   page_count: number | null
   chunk_count: number
   created_at: string
   processing_started_at: string | null
   processed_at: string | null
   progress?: IngestionProgress | null
+  extracted_metadata?: DocumentMetadata | null
+  processing_stats?: ProcessingStats | null
+}
+
+/** What extraction found; title, author and date come from the file's own properties. */
+export interface DocumentMetadata {
+  title: string | null
+  author: string | null
+  document_date: string | null // YYYY-MM-DD
+  word_count: number
+  character_count: number
+  section_count: number
+  table_count: number
+}
+
+/** Timings of the last successful processing run. */
+export interface ProcessingStats {
+  extraction_ms: number
+  chunking_ms: number
+  embedding_ms: number
+  indexing_ms: number
+  total_ms: number
+  embedding_model: string
+  characters: number
 }
 
 export interface UploadConfig {

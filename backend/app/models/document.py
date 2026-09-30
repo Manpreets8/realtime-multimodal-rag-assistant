@@ -1,9 +1,10 @@
 import uuid
 from datetime import datetime
 from enum import StrEnum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import BigInteger, DateTime, Enum, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
@@ -59,10 +60,17 @@ class Document(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         nullable=False,
     )
     error_message: Mapped[str | None] = mapped_column(Text)
+    # Machine-readable failure reason (e.g. password_protected, no_text, embedding_failed): tells
+    # the app whether retrying can help or the file itself must change.
+    error_code: Mapped[str | None] = mapped_column(String(40))
     page_count: Mapped[int | None] = mapped_column(Integer)
     chunk_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     processing_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # What extraction found: title, author and date from the file's properties, word/section counts.
+    extracted_metadata: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    # How the last successful run went: per-stage timings, embedding model, characters indexed.
+    processing_stats: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
 
     knowledge_base: Mapped["KnowledgeBase"] = relationship(back_populates="documents")
     chunks: Mapped[list["DocumentChunk"]] = relationship(

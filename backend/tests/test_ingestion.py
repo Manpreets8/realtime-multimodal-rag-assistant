@@ -90,8 +90,18 @@ async def test_pdf_is_extracted_chunked_embedded_and_stored(
     assert detail["status"] == "completed"
     assert detail["page_count"] == 2
     assert detail["chunk_count"] > 2
-    assert detail["error_message"] is None
+    assert detail["error_message"] is None and detail["error_code"] is None
     assert detail["processed_at"] is not None
+    metadata = detail["extracted_metadata"]
+    assert metadata["word_count"] == len(
+        (page_one + " Page two covers remote work approval by managers.").split()
+    )
+    assert metadata["character_count"] > 0 and metadata["section_count"] == 0
+    stats = detail["processing_stats"]
+    stages = ("extraction_ms", "chunking_ms", "embedding_ms", "indexing_ms")
+    assert all(isinstance(stats[stage], int) and stats[stage] >= 0 for stage in stages)
+    assert stats["total_ms"] >= max(stats[stage] for stage in stages)
+    assert stats["embedding_model"] == embedder.model_name
 
     chunks = (await client.get(f"{DOCS}/{document['id']}/chunks", headers=alice)).json()
     assert len(chunks) == detail["chunk_count"]
@@ -131,13 +141,19 @@ async def test_vectors_and_full_text_index_are_queryable(
 
 
 @pytest.mark.parametrize(
-    ("filename", "content", "message"),
+    ("filename", "content", "message", "code"),
     [
-        ("scan.pdf", pdf_bytes(["", ""]), "No readable text was found in this document. It may be a scanned"),
+        (
+            "scan.pdf",
+            pdf_bytes(["", ""]),
+            "No readable text was found in this document. It may be a scanned",
+            "no_text",
+        ),
         (
             "secret.pdf",
             pdf_bytes(["Top secret"], encryption=pymupdf.PDF_ENCRYPT_AES_256, owner_pw="o", user_pw="u"),
             "password-protected",
+            "password_protected",
         ),
     ],
 )
@@ -149,6 +165,7 @@ async def test_unprocessable_documents_fail_with_a_reason(
     filename: str,
     content: bytes,
     message: str,
+    code: str,
 ) -> None:
     document = await upload(client, alice, kb_id, filename, content)
 
@@ -158,7 +175,9 @@ async def test_unprocessable_documents_fail_with_a_reason(
     assert status is DocumentStatus.FAILED
     assert detail["status"] == "failed"
     assert message in detail["error_message"]
+    assert detail["error_code"] == code
     assert detail["chunk_count"] == 0
+    assert detail["processing_stats"] is None
 
 
 async def test_embedding_failure_marks_document_failed_and_stores_no_chunks(
@@ -172,6 +191,7 @@ async def test_embedding_failure_marks_document_failed_and_stores_no_chunks(
     detail = (await client.get(f"{DOCS}/{document['id']}", headers=alice)).json()
     assert detail["status"] == "failed"
     assert detail["error_message"] == "The embedding service could not be reached."
+    assert detail["error_code"] == "embedding_failed"  # temporary: worth retrying
     assert await db.scalar(select(func.count()).select_from(DocumentChunk)) == 0
 
 
@@ -187,6 +207,7 @@ async def test_unexpected_errors_are_not_leaked_to_users(
     assert detail["status"] == "failed"
     assert "secret" not in detail["error_message"]
     assert "internal error" in detail["error_message"]
+    assert detail["error_code"] == "internal_error"
 
 
 async def test_reprocess_replaces_chunks_and_rejects_documents_in_flight(
@@ -206,7 +227,7 @@ async def test_reprocess_replaces_chunks_and_rejects_documents_in_flight(
     response = await client.post(f"{DOCS}/{document_id}/reprocess", headers=alice)
     assert response.status_code == 202
     assert response.json()["status"] == "uploaded"
-    assert response.json()["error_message"] is None
+    assert response.json()["error_message"] is None and response.json()["error_code"] is None
     assert ingestion_queue.enqueued[-1] == document_id
 
     again = await client.post(f"{DOCS}/{document_id}/reprocess", headers=alice)

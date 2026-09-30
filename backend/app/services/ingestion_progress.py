@@ -27,7 +27,7 @@ class IngestionStage(StrEnum):
     EXTRACTING = "extracting"
     CHUNKING = "chunking"
     EMBEDDING = "embedding"
-    SAVING = "saving"
+    INDEXING = "indexing"  # writing passages and vectors to PostgreSQL/pgvector
 
 
 class IngestionProgress(BaseModel):

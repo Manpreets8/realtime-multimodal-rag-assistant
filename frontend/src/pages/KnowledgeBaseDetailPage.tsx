@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 
+import { DocumentInsights, PipelineSteps } from '../components/documents/DocumentIntelligence'
 import { StatusBadge } from '../components/documents/StatusBadge'
 import { UploadDropzone } from '../components/documents/UploadDropzone'
 import { KnowledgeBaseFormDialog } from '../components/knowledge-bases/KnowledgeBaseFormDialog'
@@ -24,10 +25,10 @@ import {
   listDocuments,
   reprocessDocument,
   type DocumentItem,
-  type IngestionProgress,
 } from '../services/documents'
 import { getReadiness } from '../services/health'
 import { deleteKnowledgeBase, getKnowledgeBase, updateKnowledgeBase } from '../services/knowledgeBases'
+import { canRetry, failureAdvice } from '../utils/documentFailures'
 import { formatBytes, formatDateTime, formatRelative, pluralize } from '../utils/format'
 
 function ActionIcon({ path }: { path: string }) {
@@ -48,51 +49,27 @@ const TABS: { id: TabId; label: string }[] = [
 function DocumentDetails({ document }: { document: DocumentItem }) {
   const type = document.extension.slice(1).toUpperCase()
   if (document.status === 'failed') {
+    const advice = failureAdvice(document)
     return (
-      <p className="line-clamp-2 text-xs text-rose-600 dark:text-rose-400" title={document.error_message ?? undefined}>
-        {document.error_message ?? 'Processing failed.'}
-      </p>
+      <div className="text-xs">
+        <p className="line-clamp-2 text-rose-600 dark:text-rose-400" title={document.error_message ?? undefined}>
+          {document.error_message ?? 'Processing failed.'}
+        </p>
+        {advice && <p className="mt-0.5 text-slate-600 dark:text-slate-400">{advice}</p>}
+      </div>
     )
   }
-  const parts = [type]
-  if (document.status === 'completed') {
-    parts.push(pluralize(document.chunk_count, 'chunk'))
-    if (document.page_count) parts.push(pluralize(document.page_count, 'page'))
-  } else if (document.status === 'processing') {
-    return <ProcessingDetails type={type} progress={document.progress ?? null} />
+  if (document.status === 'uploaded' || document.status === 'processing') {
+    return <PipelineSteps document={document} />
   }
-  return <p className="truncate text-xs text-slate-500 dark:text-slate-400">{parts.join(' · ')}</p>
-}
-
-const STAGE_LABELS: Record<IngestionProgress['stage'], string> = {
-  extracting: 'Extracting text…',
-  chunking: 'Splitting into chunks…',
-  embedding: 'Embedding',
-  saving: 'Saving to the index…',
-}
-
-function ProcessingDetails({ type, progress }: { type: string; progress: IngestionProgress | null }) {
-  if (!progress) return <p className="truncate text-xs text-slate-500 dark:text-slate-400">{type} · Extracting and indexing…</p>
-  const embedding = progress.stage === 'embedding' && progress.total > 0
-  const label = embedding ? `Embedding ${progress.done}/${progress.total} chunks` : STAGE_LABELS[progress.stage]
+  const parts = [type, pluralize(document.chunk_count, 'passage')]
+  if (document.page_count) parts.push(pluralize(document.page_count, 'page'))
+  const title = document.extracted_metadata?.title
   return (
-    <div className="max-w-xs">
-      <p className="truncate text-xs text-slate-500 dark:text-slate-400">
-        {type} · {label}
-      </p>
-      {embedding && (
-        <div
-          role="progressbar"
-          aria-label={`Embedding ${progress.done} of ${progress.total} chunks`}
-          aria-valuemin={0}
-          aria-valuemax={progress.total}
-          aria-valuenow={progress.done}
-          className="mt-1 h-1 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800"
-        >
-          <div className="h-full rounded-full bg-amber-500 transition-[width] duration-500" style={{ width: `${(100 * progress.done) / progress.total}%` }} />
-        </div>
-      )}
-    </div>
+    <p className="truncate text-xs text-slate-500 dark:text-slate-400">
+      {title && title !== document.filename && <span className="text-slate-600 dark:text-slate-300">{title} · </span>}
+      {parts.join(' · ')}
+    </p>
   )
 }
 
@@ -106,6 +83,7 @@ export default function KnowledgeBaseDetailPage() {
   const kb = useResource(useCallback(() => getKnowledgeBase(kbId), [kbId]))
   const documents = useResource(useCallback(() => listDocuments(kbId), [kbId]))
   const { data: uploadConfig } = useResource(getUploadConfig)
+  const [expanded, setExpanded] = useState<string | null>(null)
 
   // The statistics come from the knowledge base endpoint: refresh them whenever the set of
   // documents or their statuses change (an upload, a deletion, processing finishing).
@@ -328,7 +306,8 @@ export default function KnowledgeBaseDetailPage() {
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                     {documents.data?.map((document) => (
-                      <tr key={document.id}>
+                      <Fragment key={document.id}>
+                      <tr>
                         <td className="w-full max-w-0 py-3 pr-2 pl-4">
                           <p className="truncate font-medium" title={document.filename}>{document.filename}</p>
                           <DocumentDetails document={document} />
@@ -343,7 +322,20 @@ export default function KnowledgeBaseDetailPage() {
                           {formatDateTime(document.created_at)}
                         </td>
                         <td className="px-2 py-3 text-right whitespace-nowrap sm:px-4">
-                          {document.status === 'failed' && (
+                          {(document.status === 'completed' || document.status === 'failed') && (
+                            <button
+                              type="button"
+                              onClick={() => setExpanded(expanded === document.id ? null : document.id)}
+                              aria-expanded={expanded === document.id}
+                              aria-controls={`details-${document.id}`}
+                              className="inline-flex items-center gap-1.5 rounded-md p-2 text-xs font-medium text-slate-600 hover:bg-slate-100 sm:px-2 sm:py-1 dark:text-slate-300 dark:hover:bg-slate-800"
+                              aria-label={`Details for ${document.filename}`}
+                            >
+                              <ActionIcon path={expanded === document.id ? 'M6 15l6-6 6 6' : 'M6 9l6 6 6-6'} />
+                              <span className="hidden sm:inline">Details</span>
+                            </button>
+                          )}
+                          {document.status === 'failed' && canRetry(document) && (
                             <button
                               type="button"
                               onClick={() => handleRetry(document)}
@@ -374,6 +366,14 @@ export default function KnowledgeBaseDetailPage() {
                           </button>
                         </td>
                       </tr>
+                      {expanded === document.id && (
+                        <tr id={`details-${document.id}`}>
+                          <td colSpan={5} className="bg-slate-50 px-4 py-4 dark:bg-slate-950/40">
+                            <DocumentInsights document={document} />
+                          </td>
+                        </tr>
+                      )}
+                      </Fragment>
                     ))}
                   </tbody>
                 </table>

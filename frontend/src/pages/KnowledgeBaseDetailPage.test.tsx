@@ -82,7 +82,7 @@ describe('KnowledgeBaseDetailPage', () => {
     expect(await screen.findByRole('heading', { name: 'Company Policies' })).toBeInTheDocument()
     const row = (await screen.findByText('leave_policy.pdf')).closest('tr')!
     expect(within(row).getByText('Indexed')).toBeInTheDocument()
-    expect(within(row).getByText('PDF · 42 chunks · 12 pages')).toBeInTheDocument()
+    expect(within(row).getByText('PDF · 42 passages · 12 pages')).toBeInTheDocument()
     expect(within(row).getByText('240 KB')).toBeInTheDocument()
     expect(within(row).queryByRole('button', { name: /Retry/ })).not.toBeInTheDocument()
   })
@@ -104,11 +104,11 @@ describe('KnowledgeBaseDetailPage', () => {
 
     await vi.advanceTimersByTimeAsync(2000)
     expect(await within(row).findByText('Processing')).toBeInTheDocument()
-    expect(within(row).getByText('PDF · Extracting and indexing…')).toBeInTheDocument()
+    expect(within(row).getByText('Extracting and indexing…')).toBeInTheDocument()
 
     await vi.advanceTimersByTimeAsync(2000)
     expect(await within(row).findByText('Indexed')).toBeInTheDocument()
-    expect(within(row).getByText('PDF · 7 chunks · 2 pages')).toBeInTheDocument()
+    expect(within(row).getByText('PDF · 7 passages · 2 pages')).toBeInTheDocument()
 
     await vi.advanceTimersByTimeAsync(10_000)
     expect(calls).toBe(3) // polling stopped once nothing was pending
@@ -120,8 +120,8 @@ describe('KnowledgeBaseDetailPage', () => {
     renderSignedIn('/knowledge-bases/kb-1')
 
     const row = (await screen.findByText('leave_policy.pdf')).closest('tr')!
-    expect(within(row).getByText('PDF · Embedding 128/400 chunks')).toBeInTheDocument()
-    const bar = within(row).getByRole('progressbar', { name: 'Embedding 128 of 400 chunks' })
+    expect(within(row).getByText('Embedding 128/400 passages')).toBeInTheDocument()
+    const bar = within(row).getByRole('progressbar', { name: 'Embedding 128 of 400 passages' })
     expect(bar).toHaveAttribute('aria-valuenow', '128')
     expect(bar).toHaveAttribute('aria-valuemax', '400')
   })
@@ -306,5 +306,81 @@ describe('KnowledgeBaseDetailPage', () => {
 
     const dialog = screen.getByRole('dialog', { name: 'Delete knowledge base?' })
     expect(within(dialog).getByText(/Its 3 conversations will be kept as general chats/)).toBeInTheDocument()
+  })
+
+  it('shows where a document is in the pipeline', async () => {
+    const progress = { stage: 'chunking' as const, done: 0, total: 0, updated_at: 1 }
+    backend({ 'GET /knowledge-bases/kb-1/documents': () => json([doc({ status: 'processing', progress })]) })
+    renderSignedIn('/knowledge-bases/kb-1')
+
+    const row = (await screen.findByText('leave_policy.pdf')).closest('tr')!
+    expect(within(row).getByText('Splitting into passages')).toBeInTheDocument()
+    expect(within(row).getByText(/Step 3 of 5/)).toBeInTheDocument()
+  })
+
+  it('opens document properties and processing timings', async () => {
+    const completed = doc({
+      status: 'completed',
+      chunk_count: 42,
+      page_count: 12,
+      extracted_metadata: {
+        title: 'Leave Policy 2026',
+        author: 'HR Team',
+        document_date: '2024-01-15',
+        word_count: 12345,
+        character_count: 70000,
+        section_count: 0,
+        table_count: 0,
+      },
+      processing_stats: {
+        extraction_ms: 120,
+        chunking_ms: 4,
+        embedding_ms: 1900,
+        indexing_ms: 80,
+        total_ms: 2150,
+        embedding_model: 'BAAI/bge-small-en-v1.5',
+        characters: 70000,
+      },
+    })
+    backend({ 'GET /knowledge-bases/kb-1/documents': () => json([completed]) })
+    renderSignedIn('/knowledge-bases/kb-1')
+
+    const row = (await screen.findByText('leave_policy.pdf')).closest('tr')!
+    expect(within(row).getByText('Leave Policy 2026 ·')).toBeInTheDocument() // the title from the file's properties
+    const toggle = within(row).getByRole('button', { name: 'Details for leave_policy.pdf' })
+    await userEvent.click(toggle)
+
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    const properties = screen.getByRole('region', { name: 'Document properties' })
+    const value = (label: string) => within(properties).getByText(label).nextElementSibling
+    expect(value('Author')).toHaveTextContent('HR Team')
+    expect(value('Document date')).toHaveTextContent('15 Jan 2024')
+    expect(value('Words')).toHaveTextContent('12,345')
+    const processing = screen.getByRole('region', { name: 'Processing' })
+    const timing = (label: string) => within(processing).getByText(label).nextElementSibling
+    expect(timing('Extract')).toHaveTextContent('120 ms')
+    expect(timing('Embed')).toHaveTextContent('1.9 s')
+    expect(timing('Embedding model')).toHaveTextContent('BAAI/bge-small-en-v1.5')
+
+    await userEvent.click(toggle)
+    expect(screen.queryByRole('region', { name: 'Document properties' })).not.toBeInTheDocument()
+  })
+
+  it('explains failures and offers Retry only when it can help', async () => {
+    backend({
+      'GET /knowledge-bases/kb-1/documents': () =>
+        json([
+          doc({ id: 'locked', filename: 'secret.pdf', status: 'failed', error_message: 'The PDF is password-protected.', error_code: 'password_protected' }),
+          doc({ id: 'flaky', filename: 'notes.pdf', status: 'failed', error_message: 'The embedding service could not be reached.', error_code: 'embedding_failed' }),
+        ]),
+    })
+    renderSignedIn('/knowledge-bases/kb-1')
+
+    const locked = (await screen.findByText('secret.pdf')).closest('tr')!
+    expect(within(locked).getByText('The PDF is password-protected.')).toBeInTheDocument() // its message says what to do
+    expect(within(locked).queryByRole('button', { name: /Retry/ })).not.toBeInTheDocument()
+    const flaky = screen.getByText('notes.pdf').closest('tr')!
+    expect(within(flaky).getByText(/Retrying usually works/)).toBeInTheDocument()
+    expect(within(flaky).getByRole('button', { name: 'Retry processing notes.pdf' })).toBeInTheDocument()
   })
 })

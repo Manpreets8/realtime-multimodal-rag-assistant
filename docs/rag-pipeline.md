@@ -35,11 +35,21 @@ Files are stored under `UPLOAD_DIR` (default `documents/`) behind a small storag
 ## Document ingestion
 
 ```
-upload ─► queue ─► extract ─► clean ─► chunk ─► embed ─► store chunks + vectors ─► completed
-           │          │                           │
-           │          └── ExtractionError ────────┴──► failed (reason shown to the user)
-           └── recovered on restart (status lives in the DB, not the queue)
+upload ─► validate ─► queue ─► extract (text + metadata) ─► clean ─► chunk ─► embed ─► index ─► completed
+                        │          │                                            │
+                        │          └── ExtractionError (with a code) ───────────┴──► failed (reason + code)
+                        └── recovered on restart (status lives in the DB, not the queue)
 ```
+
+**What is tracked for each document.** The status (`uploaded` = queued, `processing`, `completed`, `failed`) is stored in PostgreSQL. While a document is processed, the worker also reports its live stage to Redis (`extracting`, `chunking`, `embedding` with *n*/*total*, `indexing`), which the UI shows as a step indicator. Upload progress is shown by the browser while the file is sent. A completed document stores:
+
+| Field | Contents |
+|---|---|
+| `extracted_metadata` | Title, author and document date from the file's own properties (PDF metadata, Word core properties; for Markdown, the first `#` heading; for Word without a title, its first heading). Converter titles like "Microsoft Word - report.docx" are cleaned, placeholder titles ("Untitled") dropped, and control, zero-width and text-direction characters removed (they can disguise text). Plus word, character, section and table counts. |
+| `processing_stats` | Milliseconds spent extracting, chunking, embedding and indexing, the total, the embedding model and the characters indexed. |
+| `error_code` | On failure: `password_protected`, `damaged_file`, `no_text`, `too_many_pages`, `too_large`, `unsupported_type`, `file_missing` (the file must change, so the app hides Retry), or `embedding_failed` / `internal_error` (temporary, so Retry is offered). |
+
+Documents processed before these fields existed keep working and gain them when re-processed.
 
 | Stage | Implementation |
 |---|---|

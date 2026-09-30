@@ -1,4 +1,5 @@
 import zipfile
+from datetime import date, datetime
 from pathlib import Path
 
 import docx
@@ -134,3 +135,101 @@ def test_utf16_text_file(tmp_path: Path) -> None:
 def test_missing_file_is_reported(tmp_path: Path) -> None:
     with pytest.raises(ExtractionError, match="missing"):
         extract_text(tmp_path / "gone.pdf", ".pdf")
+
+
+# --- metadata -----------------------------------------------------------------------------
+
+
+def test_pdf_metadata_is_read_and_cleaned(tmp_path: Path) -> None:
+    document = pymupdf.open()
+    document.new_page().insert_text((72, 72), "Quarterly results.")
+    document.set_metadata(
+        {
+            "title": "Microsoft Word - Q3\u200b Report",  # converter prefix and a zero-width space
+            "author": "  Asha   Verma ",
+            "creationDate": "D:20240115093000+01'00'",
+        }
+    )
+    path = tmp_path / "report.pdf"
+    document.save(path)
+
+    result = extract_text(path, ".pdf")
+
+    assert (result.title, result.author) == ("Q3 Report", "Asha Verma")
+    assert result.document_date == date(2024, 1, 15)
+
+
+def test_metadata_drops_invisible_and_direction_changing_characters() -> None:
+    # A right-to-left override can make "txt.exe" display as "exe.txt"; zero-width spaces hide text.
+    assert extraction._clean_field("Invoice\u202eexe.pdf\u200b") == "Invoice exe.pdf"
+    assert extraction._clean_field("\ufffd\x00  ") is None
+    assert (
+        extraction._clean_field("R\u00e9sum\u00e9, na\u00efve caf\u00e9")
+        == "R\u00e9sum\u00e9, na\u00efve caf\u00e9"
+    )
+    assert extraction._clean_field("x" * 500) == "x" * 300
+
+
+def test_pdf_without_metadata_has_none(tmp_path: Path) -> None:
+    result = extract_text(make_pdf(tmp_path / "plain.pdf", ["Text."]), ".pdf")
+
+    assert (result.title, result.author, result.document_date) == (None, None, None)
+
+
+def test_docx_properties_title_author_date_and_tables(tmp_path: Path) -> None:
+    document = docx.Document()
+    document.core_properties.title = "Leave Policy 2026"
+    document.core_properties.author = "HR Team"
+    document.core_properties.created = datetime(2026, 3, 1, 9, 30)
+    document.add_paragraph("Intro.")
+    document.add_table(rows=1, cols=1).cell(0, 0).text = "A"
+    document.add_table(rows=1, cols=1).cell(0, 0).text = "B"
+    path = tmp_path / "policy.docx"
+    document.save(path)
+
+    result = extract_text(path, ".docx")
+
+    assert (result.title, result.author, result.document_date) == (
+        "Leave Policy 2026",
+        "HR Team",
+        date(2026, 3, 1),
+    )
+    assert result.table_count == 2
+
+
+def test_docx_without_a_title_property_uses_its_first_heading(tmp_path: Path) -> None:
+    document = docx.Document()
+    document.core_properties.title = ""
+    document.add_heading("Onboarding Guide", level=1)
+    document.add_paragraph("Welcome.")
+    path = tmp_path / "guide.docx"
+    document.save(path)
+
+    assert extract_text(path, ".docx").title == "Onboarding Guide"
+
+
+def test_markdown_title_is_the_first_top_level_heading(tmp_path: Path) -> None:
+    path = tmp_path / "notes.md"
+    path.write_text("Intro line.\n\n## Details\n\n# Transformers\n\n# Later heading\n", encoding="utf-8")
+
+    result = extract_text(path, ".md")
+
+    assert result.title == "Transformers"
+    assert result.author is None
+
+
+def test_extraction_failures_carry_a_code(tmp_path: Path) -> None:
+    broken = tmp_path / "broken.pdf"
+    broken.write_bytes(b"%PDF-1.7 not a pdf")
+    secret = make_pdf(
+        tmp_path / "secret.pdf", ["x"], encryption=pymupdf.PDF_ENCRYPT_AES_256, owner_pw="o", user_pw="u"
+    )
+
+    for path, extension, code in (
+        (broken, ".pdf", "damaged_file"),
+        (secret, ".pdf", "password_protected"),
+        (tmp_path / "gone.txt", ".txt", "file_missing"),
+    ):
+        with pytest.raises(ExtractionError) as caught:
+            extract_text(path, extension)
+        assert caught.value.code == code

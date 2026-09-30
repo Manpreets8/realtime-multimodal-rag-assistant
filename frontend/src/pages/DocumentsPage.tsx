@@ -1,6 +1,7 @@
 import { useCallback, useState, type FormEvent } from 'react'
 import { Link } from 'react-router'
 
+import { PipelineSteps } from '../components/documents/DocumentIntelligence'
 import { StatusBadge } from '../components/documents/StatusBadge'
 import { ErrorAlert } from '../components/ui/Alert'
 import { Button } from '../components/ui/Button'
@@ -17,6 +18,7 @@ import {
   type DocumentListItem,
   type DocumentStatus,
 } from '../services/documents'
+import { canRetry, failureAdvice } from '../utils/documentFailures'
 import { formatBytes, formatRelative, pluralize } from '../utils/format'
 
 const PAGE_SIZE = 25
@@ -183,10 +185,16 @@ export default function DocumentsPage() {
                   {document.status === 'failed' && document.error_message && (
                     <p className="mt-1 text-xs text-rose-700 dark:text-rose-300">{document.error_message}</p>
                   )}
+                  {document.status === 'failed' && failureAdvice(document) && (
+                    <p className="mt-0.5 text-xs text-slate-600 dark:text-slate-400">{failureAdvice(document)}</p>
+                  )}
+                  {(document.status === 'uploaded' || document.status === 'processing') && (
+                    <PipelineSteps document={document} />
+                  )}
                 </div>
                 <StatusBadge status={document.status} />
                 <div className="flex gap-1">
-                  {document.status === 'failed' && (
+                  {document.status === 'failed' && canRetry(document) && (
                     <Button
                       variant="ghost"
                       className="px-2 py-1 text-xs"

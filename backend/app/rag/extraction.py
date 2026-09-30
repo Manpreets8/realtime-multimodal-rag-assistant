@@ -9,8 +9,10 @@ All functions here are blocking (file I/O + parsing); call them from a worker th
 
 import codecs
 import re
+import unicodedata
 import zipfile
 from dataclasses import dataclass
+from datetime import date, datetime
 from pathlib import Path
 
 import docx
@@ -28,7 +30,12 @@ MAX_SECTION_LENGTH = 300
 
 
 class ExtractionError(Exception):
-    """Extraction failed for a reason the user can act on. The message is shown to them."""
+    """Extraction failed for a reason the user can act on. The message is shown to them;
+    `code` is stored with it so the app can tell a retryable failure from a bad file."""
+
+    def __init__(self, message: str, code: str = "extraction_failed") -> None:
+        super().__init__(message)
+        self.code = code
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,11 +49,60 @@ class TextBlock:
 class ExtractedDocument:
     blocks: list[TextBlock]
     page_count: int | None = None
+    # From the file's own properties (PDF metadata, DOCX core properties) or, for Markdown,
+    # its first top-level heading. Untrusted input: cleaned and length-limited.
+    title: str | None = None
+    author: str | None = None
+    document_date: date | None = None  # when the document says it was created
+    table_count: int = 0
+
+
+# Titles that PDF converters write instead of a real title.
+_CONVERTER_PREFIX = re.compile(r"^Microsoft (Word|PowerPoint|Excel) - ", re.IGNORECASE)
+_PLACEHOLDER_TITLES = {"untitled", "untitled document", "document", "title"}
+MAX_METADATA_LENGTH = 300
+# Unicode categories never kept in metadata: control, format (zero-width and bidi overrides,
+# which can disguise text), surrogate, private use and unassigned.
+_DROPPED_CATEGORIES = {"Cc", "Cf", "Cs", "Co", "Cn"}
+
+
+def _clean_field(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    kept = "".join(
+        " " if unicodedata.category(char) in _DROPPED_CATEGORIES or char == "�" else char for char in value
+    )
+    text = " ".join(kept.split())[:MAX_METADATA_LENGTH]
+    return text or None
+
+
+def _clean_title(value: object) -> str | None:
+    title = _clean_field(value)
+    if title is None:
+        return None
+    title = _CONVERTER_PREFIX.sub("", title).strip()
+    return None if not title or title.lower() in _PLACEHOLDER_TITLES else title
+
+
+_PDF_DATE = re.compile(r"^D:(\d{4})(\d{2})?(\d{2})?")
+
+
+def _pdf_date(value: object) -> date | None:
+    """PDF dates look like "D:20240115093000+01'00'"; only the day matters here."""
+    match = _PDF_DATE.match(value) if isinstance(value, str) else None
+    if not match:
+        return None
+    try:
+        return date(int(match.group(1)), int(match.group(2) or 1), int(match.group(3) or 1))
+    except ValueError:
+        return None
 
 
 def extract_text(path: Path, extension: str) -> ExtractedDocument:
     if not path.is_file():
-        raise ExtractionError("The uploaded file is missing from storage. Please upload it again.")
+        raise ExtractionError(
+            "The uploaded file is missing from storage. Please upload it again.", "file_missing"
+        )
     match extension.lower():
         case ".pdf":
             return _extract_pdf(path)
@@ -57,7 +113,9 @@ def extract_text(path: Path, extension: str) -> ExtractedDocument:
         case ".txt":
             return ExtractedDocument(blocks=_non_empty([TextBlock(clean_text(_read_text(path)))]))
         case _:
-            raise ExtractionError(f"No text extractor is available for '{extension}' files.")
+            raise ExtractionError(
+                f"No text extractor is available for '{extension}' files.", "unsupported_type"
+            )
 
 
 # --- PDF ----------------------------------------------------------------------
@@ -67,13 +125,16 @@ def _extract_pdf(path: Path) -> ExtractedDocument:
     try:
         document = pymupdf.open(path, filetype="pdf")
     except (pymupdf.FileDataError, pymupdf.EmptyFileError, RuntimeError) as exc:
-        raise ExtractionError("The PDF is damaged or could not be opened.") from exc
+        raise ExtractionError("The PDF is damaged or could not be opened.", "damaged_file") from exc
 
     with document:
         if document.needs_pass:
-            raise ExtractionError("The PDF is password-protected. Remove the password and upload it again.")
+            raise ExtractionError(
+                "The PDF is password-protected. Remove the password and upload it again.",
+                "password_protected",
+            )
         if document.page_count > MAX_PDF_PAGES:
-            raise ExtractionError(f"The PDF has more than {MAX_PDF_PAGES} pages.")
+            raise ExtractionError(f"The PDF has more than {MAX_PDF_PAGES} pages.", "too_many_pages")
 
         blocks: list[TextBlock] = []
         for page in document:
@@ -85,7 +146,14 @@ def _extract_pdf(path: Path) -> ExtractedDocument:
             ]
             text = clean_text("\n\n".join(paragraphs))
             blocks.append(TextBlock(text=text, page_number=page.number + 1))
-        return ExtractedDocument(blocks=_non_empty(blocks), page_count=document.page_count)
+        info = document.metadata or {}
+        return ExtractedDocument(
+            blocks=_non_empty(blocks),
+            page_count=document.page_count,
+            title=_clean_title(info.get("title")),
+            author=_clean_field(info.get("author")),
+            document_date=_pdf_date(info.get("creationDate")),
+        )
 
 
 _HYPHEN_LINE_BREAK = re.compile(r"(\w)-\n(\w)")
@@ -105,11 +173,13 @@ def _check_zip_safety(path: Path) -> None:
         with zipfile.ZipFile(path) as archive:
             entries = archive.infolist()
     except zipfile.BadZipFile as exc:
-        raise ExtractionError("The Word document is damaged or could not be opened.") from exc
+        raise ExtractionError("The Word document is damaged or could not be opened.", "damaged_file") from exc
     uncompressed = sum(entry.file_size for entry in entries)
     compressed = sum(entry.compress_size for entry in entries) or 1
     if uncompressed > MAX_DOCX_UNCOMPRESSED_BYTES or uncompressed / compressed > MAX_DOCX_COMPRESSION_RATIO:
-        raise ExtractionError("The Word document is too large when decompressed and was not processed.")
+        raise ExtractionError(
+            "The Word document is too large when decompressed and was not processed.", "too_large"
+        )
 
 
 def _heading_level(paragraph: Paragraph) -> int | None:
@@ -139,9 +209,10 @@ def _extract_docx(path: Path) -> ExtractedDocument:
     try:
         document = docx.Document(str(path))
     except Exception as exc:  # python-docx raises a variety of parser errors
-        raise ExtractionError("The Word document is damaged or could not be opened.") from exc
+        raise ExtractionError("The Word document is damaged or could not be opened.", "damaged_file") from exc
 
     sections = _SectionBuilder()
+    tables = 0
     for item in document.iter_inner_content():
         if isinstance(item, Paragraph):
             text = item.text.strip()
@@ -153,8 +224,17 @@ def _extract_docx(path: Path) -> ExtractedDocument:
             else:
                 sections.add(text)
         elif isinstance(item, Table):
+            tables += 1
             sections.add(_table_text(item))
-    return ExtractedDocument(blocks=sections.blocks())
+    properties = document.core_properties
+    created = properties.created
+    return ExtractedDocument(
+        blocks=sections.blocks(),
+        title=_clean_title(properties.title) or sections.first_title,
+        author=_clean_field(properties.author),
+        document_date=created.date() if isinstance(created, datetime) else None,
+        table_count=tables,
+    )
 
 
 # --- Markdown / text ----------------------------------------------------------
@@ -181,7 +261,7 @@ def _extract_markdown(path: Path) -> ExtractedDocument:
             sections.heading(len(heading.group(1)), heading.group(2))
         else:
             sections.add(line, separator="\n")
-    return ExtractedDocument(blocks=sections.blocks())
+    return ExtractedDocument(blocks=sections.blocks(), title=sections.first_title)
 
 
 class _SectionBuilder:
@@ -192,10 +272,13 @@ class _SectionBuilder:
         self._current: list[str] = []
         self._current_section: str | None = None
         self._blocks: list[TextBlock] = []
+        self.first_title: str | None = None  # the first top-level heading, used as the title
 
     def heading(self, level: int, title: str) -> None:
         self._flush()
         title = " ".join(title.split())
+        if level == 1 and self.first_title is None:
+            self.first_title = _clean_title(title)
         self._stack = [(lvl, text) for lvl, text in self._stack if lvl < level] + [(level, title)]
         self._current_section = " > ".join(text for _, text in self._stack)[:MAX_SECTION_LENGTH]
         # The heading itself is part of the section's text: it helps retrieval.
