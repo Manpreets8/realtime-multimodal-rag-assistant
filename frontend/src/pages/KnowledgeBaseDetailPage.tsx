@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 
 import { StatusBadge } from '../components/documents/StatusBadge'
@@ -28,7 +28,7 @@ import {
 } from '../services/documents'
 import { getReadiness } from '../services/health'
 import { deleteKnowledgeBase, getKnowledgeBase, updateKnowledgeBase } from '../services/knowledgeBases'
-import { formatBytes, formatDateTime, pluralize } from '../utils/format'
+import { formatBytes, formatDateTime, formatRelative, pluralize } from '../utils/format'
 
 function ActionIcon({ path }: { path: string }) {
   return (
@@ -106,6 +106,16 @@ export default function KnowledgeBaseDetailPage() {
   const kb = useResource(useCallback(() => getKnowledgeBase(kbId), [kbId]))
   const documents = useResource(useCallback(() => listDocuments(kbId), [kbId]))
   const { data: uploadConfig } = useResource(getUploadConfig)
+
+  // The statistics come from the knowledge base endpoint: refresh them whenever the set of
+  // documents or their statuses change (an upload, a deletion, processing finishing).
+  const fingerprint = documents.data?.map((d) => `${d.id}:${d.status}`).join(',')
+  const lastFingerprint = useRef(fingerprint)
+  const reloadKb = kb.reload
+  useEffect(() => {
+    if (lastFingerprint.current !== undefined && fingerprint !== lastFingerprint.current) reloadKb()
+    lastFingerprint.current = fingerprint
+  }, [fingerprint, reloadKb])
 
   const [editing, setEditing] = useState(false)
   const [deletingKb, setDeletingKb] = useState(false)
@@ -205,6 +215,24 @@ export default function KnowledgeBaseDetailPage() {
           </Button>
         </div>
       </header>
+
+      {kb.data && (
+        <dl aria-label="Knowledge base statistics" className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-5">
+          {[
+            ['Documents', `${kb.data.document_count}`, `${kb.data.status_counts.completed ?? 0} indexed`],
+            ['Passages', `${kb.data.passage_count}`, 'searchable chunks'],
+            ['Storage', formatBytes(kb.data.total_bytes), 'uploaded files'],
+            ['Chats', `${kb.data.conversation_count}`, 'using this knowledge base'],
+            ['Last activity', formatRelative(kb.data.last_activity_at ?? kb.data.updated_at), 'uploads or edits'],
+          ].map(([label, value, hint]) => (
+            <div key={label} className="rounded-xl border border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-900">
+              <dt className="text-xs text-slate-500 dark:text-slate-400">{label}</dt>
+              <dd className="mt-0.5 text-lg font-semibold tabular-nums">{value}</dd>
+              <dd className="text-[11px] text-slate-500 dark:text-slate-400">{hint}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
 
       <div className="mt-8 border-b border-slate-200 dark:border-slate-800" role="tablist" aria-label="Knowledge base views">
         {TABS.map((tab) => (
@@ -379,6 +407,13 @@ export default function KnowledgeBaseDetailPage() {
           <>
             <strong>{kb.data?.name}</strong> and its {pluralize(kb.data?.document_count ?? 0, 'document')} will be
             permanently deleted. This cannot be undone.
+            {(kb.data?.conversation_count ?? 0) > 0 && (
+              <>
+                {' '}
+                Its {pluralize(kb.data?.conversation_count ?? 0, 'conversation')} will be kept as general chats, which
+                answer without your documents.
+              </>
+            )}
           </>
         }
         confirmLabel="Delete knowledge base"

@@ -227,4 +227,32 @@ describe('ChatPage', () => {
     expect(await screen.findByText('This conversation does not exist or was deleted.')).toBeInTheDocument()
     expect(composer()).toBeDisabled()
   })
+
+  it('starts new chats with the knowledge base you used last', async () => {
+    backend({ 'GET /conversations': () => json([]) })
+    const first = renderSignedIn('/chat')
+
+    await screen.findByRole('option', { name: 'Company Policies' })
+    await userEvent.selectOptions(screen.getByLabelText('Knowledge base'), 'kb-1')
+    expect(localStorage.getItem('mindora-last-kb')).toBe('kb-1')
+    first.unmount()
+
+    renderSignedIn('/chat')
+    await waitFor(() => expect(screen.getByLabelText('Knowledge base')).toHaveValue('kb-1'))
+  })
+
+  it('ignores a remembered knowledge base that was deleted', async () => {
+    localStorage.setItem('mindora-last-kb', 'kb-deleted')
+    const fetchSpy = backend({
+      'GET /conversations': () => json([]),
+      'POST /chat': () => json({ conversation: summary({ id: 'conv-g', knowledge_base_id: null }), user_message: userMessage('u', 'Hi'), assistant_message: assistantMessage('a', 'Hello!', { answer_type: 'general', grounded: false, citations: [], sources: [] }) }),
+      'GET /conversations/conv-g': () => json({ ...summary({ id: 'conv-g', knowledge_base_id: null }), messages: [] }),
+    })
+    renderSignedIn('/chat')
+
+    await screen.findByRole('option', { name: 'Company Policies' })
+    expect(screen.getByLabelText('Knowledge base')).toHaveValue('')
+    await userEvent.type(composer(), 'Hi{Enter}')
+    await waitFor(() => expect(bodyOf(fetchSpy, '/chat')).toEqual({ message: 'Hi', knowledge_base_id: null }))
+  })
 })

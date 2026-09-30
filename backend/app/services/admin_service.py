@@ -11,6 +11,7 @@ from app.core.errors import ConflictError, NotFoundError
 from app.models import Conversation, Document, KnowledgeBase, User, UserRole
 from app.schemas.admin import AdminUserList, AdminUserRead, AdminUserUpdate
 from app.schemas.auth import UserRead
+from app.utils.sql import LIKE_ESCAPE, contains_pattern
 
 logger = logging.getLogger(__name__)
 
@@ -45,15 +46,13 @@ def _to_read(user: User, knowledge_bases: int, documents: int, conversations: in
     )
 
 
-def _escape_like(term: str) -> str:
-    return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-
-
 async def list_users(db: AsyncSession, *, search: str | None, limit: int, offset: int) -> AdminUserList:
     condition = None
     if search and search.strip():
-        pattern = f"%{_escape_like(search.strip())}%"
-        condition = or_(User.email.ilike(pattern, escape="\\"), User.full_name.ilike(pattern, escape="\\"))
+        pattern = contains_pattern(search.strip())
+        condition = or_(
+            User.email.ilike(pattern, escape=LIKE_ESCAPE), User.full_name.ilike(pattern, escape=LIKE_ESCAPE)
+        )
 
     query = _with_counts().order_by(User.created_at.desc(), User.id).limit(limit).offset(offset)
     total_query = select(func.count(User.id))

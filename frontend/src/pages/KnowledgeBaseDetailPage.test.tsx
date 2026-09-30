@@ -17,8 +17,12 @@ const KB = {
   description: 'HR handbook',
   document_count: 1,
   status_counts: { uploaded: 1 },
+  passage_count: 0,
+  total_bytes: 245_760,
+  conversation_count: 0,
   created_at: '2026-09-20T10:00:00Z',
   updated_at: '2026-09-25T10:00:00Z',
+  last_activity_at: '2026-09-25T10:00:00Z',
 }
 
 function doc(overrides: Partial<documentsApi.DocumentItem> = {}): documentsApi.DocumentItem {
@@ -276,5 +280,31 @@ describe('KnowledgeBaseDetailPage', () => {
     renderSignedIn('/knowledge-bases/kb-1')
 
     expect(await screen.findByText(/does not exist or you do not have access/)).toBeInTheDocument()
+  })
+
+  it('shows the knowledge base statistics', async () => {
+    backend({
+      'GET /knowledge-bases/kb-1': () =>
+        json({ ...KB, document_count: 4, status_counts: { completed: 3, failed: 1 }, passage_count: 120, total_bytes: 5 * 1024 * 1024, conversation_count: 2 }),
+    })
+    renderSignedIn('/knowledge-bases/kb-1')
+
+    const list = await screen.findByLabelText('Knowledge base statistics')
+    const value = (label: string) => within(list).getByText(label).nextElementSibling
+    expect(value('Documents')).toHaveTextContent('4')
+    expect(within(list).getByText('3 indexed')).toBeInTheDocument()
+    expect(value('Passages')).toHaveTextContent('120')
+    expect(value('Storage')).toHaveTextContent('5.0 MB')
+    expect(value('Chats')).toHaveTextContent('2')
+  })
+
+  it('warns that conversations become general chats when deleting', async () => {
+    backend({ 'GET /knowledge-bases/kb-1': () => json({ ...KB, conversation_count: 3 }) })
+    renderSignedIn('/knowledge-bases/kb-1')
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Delete' }))
+
+    const dialog = screen.getByRole('dialog', { name: 'Delete knowledge base?' })
+    expect(within(dialog).getByText(/Its 3 conversations will be kept as general chats/)).toBeInTheDocument()
   })
 })

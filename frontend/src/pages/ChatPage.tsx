@@ -24,6 +24,7 @@ import {
 import { ChatCancelledError, streamMessage, type ChatStage, type ChatStream } from '../services/chatSocket'
 import { IMAGE_TYPES } from '../services/images'
 import { listKnowledgeBases } from '../services/knowledgeBases'
+import { lastKnowledgeBase } from '../services/lastKnowledgeBase'
 import { MAX_RECORDING_SECONDS } from '../services/voice'
 import { formatRelative } from '../utils/format'
 
@@ -159,7 +160,8 @@ export default function ChatPage() {
   )
   const detail = conversation.data && conversation.data.id === conversationId ? conversation.data : null
 
-  const [newChatKb, setNewChatKb] = useState<string | null>(() => searchParams.get('kb'))
+  // A link like /chat?kb=… picks the knowledge base; otherwise new chats start with the last one used.
+  const [newChatKb, setNewChatKb] = useState<string | null>(() => searchParams.get('kb') ?? lastKnowledgeBase.get())
   const [input, setInput] = useState('')
   const attachments = useImageAttachments()
   const [pending, setPending] = useState<Outgoing | null>(null)
@@ -183,7 +185,11 @@ export default function ChatPage() {
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
-  const selectedKb = conversationId ? (detail?.knowledge_base_id ?? null) : newChatKb
+  // The remembered (or linked) knowledge base may have been deleted since: then it's a general chat.
+  const newChatKbExists =
+    newChatKb !== null && (knowledgeBases.data ? knowledgeBases.data.some((kb) => kb.id === newChatKb) : true)
+  const validNewChatKb = newChatKbExists ? newChatKb : null
+  const selectedKb = conversationId ? (detail?.knowledge_base_id ?? null) : validNewChatKb
   const messageCount = detail?.messages.length ?? 0
 
   useEffect(() => {
@@ -219,7 +225,7 @@ export default function ChatPage() {
         message,
         conversationId: conversationId ?? null,
         // A new conversation takes the selected knowledge base; existing ones keep theirs (changed via PATCH).
-        knowledgeBaseId: conversationId ? undefined : newChatKb,
+        knowledgeBaseId: conversationId ? undefined : validNewChatKb,
         imageIds: sent.map((a) => a.imageId!),
       },
       {
@@ -258,6 +264,7 @@ export default function ChatPage() {
   async function changeKnowledgeBase(value: string) {
     const kbId = value || null
     setSettingsError(null)
+    lastKnowledgeBase.set(kbId)
     if (!conversationId || !detail) {
       setNewChatKb(kbId)
       return

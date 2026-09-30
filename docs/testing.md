@@ -5,14 +5,14 @@ How the application is tested, and how to run the suites. Back to the [README](.
 ## Testing
 
 ```bash
-cd backend  && pytest                  # 500 tests: unit + integration + real-model tests; needs
+cd backend  && pytest                  # 505 tests: unit + integration + real-model tests; needs
                                        # `docker compose up -d postgres redis`. Integration tests use a separate
                                        # rag_assistant_test database and Redis database 15
 cd backend  && pytest -m "not integration and not model"   # no PostgreSQL, Redis or model download (~10 s)
 cd backend  && pytest --cov            # coverage report (configured in pyproject.toml)
 cd backend  && ruff check . && ruff format --check .
 cd backend  && pip-audit -r requirements.txt -r requirements-dev.txt
-cd frontend && npm test                # 150 tests (Vitest + Testing Library)
+cd frontend && npm test                # 156 tests (Vitest + Testing Library)
 cd frontend && npm run test:coverage
 cd frontend && npm run lint && npm run typecheck && npm audit
 ```

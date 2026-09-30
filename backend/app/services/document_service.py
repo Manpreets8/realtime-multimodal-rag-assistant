@@ -17,6 +17,7 @@ from app.schemas.document import ChunkContext, ContextChunk, DocumentListItem, D
 from app.services import ingestion_progress, knowledge_base_service
 from app.services.storage import LocalFileStorage
 from app.utils.files import resolve_file_type, sanitize_filename, validate_file_content
+from app.utils.sql import LIKE_ESCAPE, contains_pattern
 
 logger = logging.getLogger(__name__)
 
@@ -122,8 +123,7 @@ async def list_for_user(
     if status is not None:
         conditions.append(Document.status == status)
     if search and search.strip():
-        escaped = search.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-        conditions.append(Document.filename.ilike(f"%{escaped}%", escape="\\"))
+        conditions.append(Document.filename.ilike(contains_pattern(search.strip()), escape=LIKE_ESCAPE))
 
     rows = (
         await db.execute(

@@ -7,17 +7,29 @@ export interface KnowledgeBase {
   description: string | null
   document_count: number
   status_counts: Partial<Record<DocumentStatus, number>>
+  passage_count: number
+  total_bytes: number
+  /** Conversations answering from it; they become general chats if it is deleted. */
+  conversation_count: number
   created_at: string
   updated_at: string
+  /** Latest change to it or any of its documents. */
+  last_activity_at: string | null
 }
+
+export type KnowledgeBaseSort = 'recent' | 'name' | 'created'
 
 export interface KnowledgeBaseInput {
   name: string
   description: string | null
 }
 
-export function listKnowledgeBases(): Promise<KnowledgeBase[]> {
-  return apiRequest<KnowledgeBase[]>('/knowledge-bases')
+export function listKnowledgeBases(options: { search?: string; sort?: KnowledgeBaseSort } = {}): Promise<KnowledgeBase[]> {
+  const query = new URLSearchParams()
+  if (options.search) query.set('search', options.search)
+  if (options.sort && options.sort !== 'recent') query.set('sort', options.sort)
+  const suffix = query.size ? `?${query}` : ''
+  return apiRequest<KnowledgeBase[]>(`/knowledge-bases${suffix}`)
 }
 
 export function getKnowledgeBase(id: string): Promise<KnowledgeBase> {

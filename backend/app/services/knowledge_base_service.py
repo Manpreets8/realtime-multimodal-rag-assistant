@@ -3,14 +3,20 @@
 import logging
 import uuid
 
-from sqlalchemy import func, select
+from sqlalchemy import Select, func, literal_column, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import ConflictError, NotFoundError
-from app.models import Document, DocumentStatus, KnowledgeBase
-from app.schemas.knowledge_base import KnowledgeBaseCreate, KnowledgeBaseRead, KnowledgeBaseUpdate
+from app.models import Conversation, Document, DocumentStatus, KnowledgeBase
+from app.schemas.knowledge_base import (
+    KnowledgeBaseCreate,
+    KnowledgeBaseRead,
+    KnowledgeBaseSort,
+    KnowledgeBaseUpdate,
+)
 from app.services.storage import LocalFileStorage
+from app.utils.sql import LIKE_ESCAPE, contains_pattern
 
 logger = logging.getLogger(__name__)
 
@@ -27,16 +33,79 @@ async def get_owned(db: AsyncSession, user_id: uuid.UUID, kb_id: uuid.UUID) -> K
     return kb
 
 
+def _with_stats() -> Select:
+    """Knowledge bases with their totals, computed in the database (no query per item)."""
+    documents = (
+        select(
+            Document.knowledge_base_id.label("kb_id"),
+            func.count(Document.id).label("documents"),
+            func.coalesce(func.sum(Document.chunk_count), 0).label("passages"),
+            func.coalesce(func.sum(Document.size_bytes), 0).label("bytes"),
+            func.max(Document.updated_at).label("activity"),
+        )
+        .group_by(Document.knowledge_base_id)
+        .subquery()
+    )
+    conversations = (
+        select(Conversation.knowledge_base_id.label("kb_id"), func.count(Conversation.id).label("count"))
+        .where(Conversation.knowledge_base_id.is_not(None))
+        .group_by(Conversation.knowledge_base_id)
+        .subquery()
+    )
+    last_activity = func.greatest(
+        KnowledgeBase.updated_at, func.coalesce(documents.c.activity, KnowledgeBase.updated_at)
+    )
+    return (
+        select(
+            KnowledgeBase,
+            func.coalesce(documents.c.documents, 0),
+            func.coalesce(documents.c.passages, 0),
+            func.coalesce(documents.c.bytes, 0),
+            func.coalesce(conversations.c.count, 0),
+            last_activity.label("last_activity_at"),
+        )
+        .outerjoin(documents, documents.c.kb_id == KnowledgeBase.id)
+        .outerjoin(conversations, conversations.c.kb_id == KnowledgeBase.id)
+    )
+
+
+async def _status_counts(
+    db: AsyncSession, kb_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, dict[DocumentStatus, int]]:
+    counts: dict[uuid.UUID, dict[DocumentStatus, int]] = {kb_id: {} for kb_id in kb_ids}
+    if kb_ids:
+        rows = await db.execute(
+            select(Document.knowledge_base_id, Document.status, func.count())
+            .where(Document.knowledge_base_id.in_(kb_ids))
+            .group_by(Document.knowledge_base_id, Document.status)
+        )
+        for kb_id, status, count in rows:
+            counts[kb_id][DocumentStatus(status)] = count
+    return counts
+
+
+async def _read_rows(db: AsyncSession, query: Select) -> list[KnowledgeBaseRead]:
+    rows = (await db.execute(query)).all()
+    counts = await _status_counts(db, [row[0].id for row in rows])
+    # int(): PostgreSQL returns SUM over integers as numeric (Decimal), and model_copy skips validation.
+    return [
+        KnowledgeBaseRead.model_validate(kb).model_copy(
+            update={
+                "document_count": int(documents),
+                "status_counts": counts[kb.id],
+                "passage_count": int(passages),
+                "total_bytes": int(total_bytes),
+                "conversation_count": int(conversations),
+                "last_activity_at": last_activity_at,
+            }
+        )
+        for kb, documents, passages, total_bytes, conversations, last_activity_at in rows
+    ]
+
+
 async def _to_read(db: AsyncSession, kb: KnowledgeBase) -> KnowledgeBaseRead:
-    rows = await db.execute(
-        select(Document.status, func.count())
-        .where(Document.knowledge_base_id == kb.id)
-        .group_by(Document.status)
-    )
-    counts = {DocumentStatus(status): count for status, count in rows.all()}
-    return KnowledgeBaseRead.model_validate(kb).model_copy(
-        update={"document_count": sum(counts.values()), "status_counts": counts}
-    )
+    [read] = await _read_rows(db, _with_stats().where(KnowledgeBase.id == kb.id))
+    return read
 
 
 async def create(db: AsyncSession, user_id: uuid.UUID, data: KnowledgeBaseCreate) -> KnowledgeBaseRead:
@@ -53,35 +122,29 @@ async def create(db: AsyncSession, user_id: uuid.UUID, data: KnowledgeBaseCreate
 
 
 async def list_for_user(
-    db: AsyncSession, user_id: uuid.UUID, *, limit: int, offset: int
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    *,
+    limit: int,
+    offset: int,
+    search: str | None = None,
+    sort: KnowledgeBaseSort = "recent",
 ) -> list[KnowledgeBaseRead]:
-    document_count = func.count(Document.id).label("document_count")
-    rows = await db.execute(
-        select(KnowledgeBase, document_count)
-        .outerjoin(Document, Document.knowledge_base_id == KnowledgeBase.id)
-        .where(KnowledgeBase.user_id == user_id)
-        .group_by(KnowledgeBase.id)
-        .order_by(KnowledgeBase.updated_at.desc())
-        .limit(limit)
-        .offset(offset)
-    )
-    listed = rows.all()
-    # Status breakdown for every listed knowledge base in one grouped query (no query per item).
-    counts: dict[uuid.UUID, dict[DocumentStatus, int]] = {kb.id: {} for kb, _ in listed}
-    if counts:
-        status_rows = await db.execute(
-            select(Document.knowledge_base_id, Document.status, func.count())
-            .where(Document.knowledge_base_id.in_(counts))
-            .group_by(Document.knowledge_base_id, Document.status)
+    query = _with_stats().where(KnowledgeBase.user_id == user_id)
+    if search and search.strip():
+        pattern = contains_pattern(search.strip())
+        query = query.where(
+            or_(
+                KnowledgeBase.name.ilike(pattern, escape=LIKE_ESCAPE),
+                KnowledgeBase.description.ilike(pattern, escape=LIKE_ESCAPE),
+            )
         )
-        for kb_id, status, count in status_rows:
-            counts[kb_id][DocumentStatus(status)] = count
-    return [
-        KnowledgeBaseRead.model_validate(kb).model_copy(
-            update={"document_count": count, "status_counts": counts[kb.id]}
-        )
-        for kb, count in listed
-    ]
+    order = {
+        "recent": [literal_column("last_activity_at").desc()],
+        "name": [func.lower(KnowledgeBase.name)],
+        "created": [KnowledgeBase.created_at.desc()],
+    }[sort]
+    return await _read_rows(db, query.order_by(*order, KnowledgeBase.id).limit(limit).offset(offset))
 
 
 async def get(db: AsyncSession, user_id: uuid.UUID, kb_id: uuid.UUID) -> KnowledgeBaseRead:

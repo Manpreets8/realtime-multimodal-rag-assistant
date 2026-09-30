@@ -1,4 +1,4 @@
-import { screen, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 
@@ -10,9 +10,13 @@ const KB = {
   name: 'Company Policies',
   description: 'HR handbook and leave policy',
   document_count: 3,
-  status_counts: { uploaded: 3 },
+  status_counts: { completed: 2, failed: 1 },
+  passage_count: 48,
+  total_bytes: 3 * 1024 * 1024,
+  conversation_count: 5,
   created_at: '2026-09-20T10:00:00Z',
   updated_at: '2026-09-25T10:00:00Z',
+  last_activity_at: '2026-09-28T10:00:00Z',
 }
 
 const UPLOAD_CONFIG = {
@@ -28,8 +32,13 @@ describe('KnowledgeBasesPage', () => {
 
     const card = await screen.findByRole('link', { name: /Company Policies/ })
     expect(card).toHaveAttribute('href', '/knowledge-bases/kb-1')
-    expect(within(card).getByText('3 documents')).toBeInTheDocument()
     expect(within(card).getByText('HR handbook and leave policy')).toBeInTheDocument()
+    const stat = (label: string) => within(card).getByText(label).nextElementSibling
+    expect(stat('Documents')).toHaveTextContent('3')
+    expect(stat('Passages')).toHaveTextContent('48')
+    expect(stat('Chats')).toHaveTextContent('5')
+    expect(within(card).getByText(/3\.0 MB/)).toBeInTheDocument()
+    expect(within(card).getByText('· 1 failed')).toBeInTheDocument()
   })
 
   it('shows an empty state for new users', async () => {
@@ -77,5 +86,33 @@ describe('KnowledgeBasesPage', () => {
 
     expect(await within(dialog).findByText('You already have a knowledge base with this name.')).toBeInTheDocument()
     expect(screen.getByRole('dialog')).toBeInTheDocument()
+  })
+
+  it('searches as you type and changes the sort order', async () => {
+    const spy = mockFetch({ 'GET /auth/me': () => json(TEST_USER), 'GET /knowledge-bases': () => json([KB]) })
+    renderSignedIn('/knowledge-bases')
+    await screen.findByRole('link', { name: /Company Policies/ })
+    const requests = () => spy.mock.calls.map(([input]) => String(input)).filter((url) => url.includes('/knowledge-bases'))
+
+    await userEvent.type(screen.getByRole('searchbox', { name: 'Search knowledge bases' }), 'policy')
+    await waitFor(() => expect(requests().at(-1)).toContain('search=policy'))
+    expect(requests().filter((url) => url.includes('search=p'))).toHaveLength(1) // once, after typing pauses
+
+    await userEvent.selectOptions(screen.getByLabelText('Sort by'), 'name')
+    await waitFor(() => expect(requests().at(-1)).toMatch(/search=policy.*sort=name/))
+  })
+
+  it('says when nothing matches the search', async () => {
+    const spy = mockFetch({
+      'GET /auth/me': () => json(TEST_USER),
+      'GET /knowledge-bases': () => json(spy.mock.calls.some(([input]) => String(input).includes('search=')) ? [] : [KB]),
+    })
+    renderSignedIn('/knowledge-bases')
+    await screen.findByRole('link', { name: /Company Policies/ })
+
+    await userEvent.type(screen.getByRole('searchbox', { name: 'Search knowledge bases' }), 'zzz')
+
+    expect(await screen.findByText('No knowledge bases match “zzz”.')).toBeInTheDocument()
+    expect(screen.getByRole('searchbox', { name: 'Search knowledge bases' })).toBeInTheDocument()
   })
 })

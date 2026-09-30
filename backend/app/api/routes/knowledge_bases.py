@@ -5,7 +5,12 @@ from fastapi import APIRouter, Query, Response, status
 
 from app.api.deps import CurrentUser, DbSession, Storage
 from app.schemas.document import DocumentRead
-from app.schemas.knowledge_base import KnowledgeBaseCreate, KnowledgeBaseRead, KnowledgeBaseUpdate
+from app.schemas.knowledge_base import (
+    KnowledgeBaseCreate,
+    KnowledgeBaseRead,
+    KnowledgeBaseSort,
+    KnowledgeBaseUpdate,
+)
 from app.services import document_service, knowledge_base_service
 
 router = APIRouter(prefix="/knowledge-bases", tags=["knowledge bases"])
@@ -29,9 +34,18 @@ async def create_knowledge_base(
 
 @router.get("", response_model=list[KnowledgeBaseRead])
 async def list_knowledge_bases(
-    db: DbSession, current_user: CurrentUser, limit: Limit = 100, offset: Offset = 0
+    db: DbSession,
+    current_user: CurrentUser,
+    limit: Limit = 100,
+    offset: Offset = 0,
+    search: Annotated[str | None, Query(max_length=100, description="Part of a name or description")] = None,
+    sort: Annotated[
+        KnowledgeBaseSort, Query(description="recent (last activity), name (A-Z) or created (newest)")
+    ] = "recent",
 ) -> list[KnowledgeBaseRead]:
-    return await knowledge_base_service.list_for_user(db, current_user.id, limit=limit, offset=offset)
+    return await knowledge_base_service.list_for_user(
+        db, current_user.id, limit=limit, offset=offset, search=search, sort=sort
+    )
 
 
 @router.get("/{kb_id}", response_model=KnowledgeBaseRead, responses=_NOT_FOUND)

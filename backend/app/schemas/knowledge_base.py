@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -50,6 +51,9 @@ class KnowledgeBaseUpdate(BaseModel):
         return self
 
 
+KnowledgeBaseSort = Literal["recent", "name", "created"]
+
+
 class KnowledgeBaseRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -58,5 +62,9 @@ class KnowledgeBaseRead(BaseModel):
     description: str | None
     document_count: int = 0
     status_counts: dict[DocumentStatus, int] = Field(default_factory=dict)
+    passage_count: int = 0  # indexed chunks across its documents
+    total_bytes: int = 0  # size of its uploaded files
+    conversation_count: int = 0  # conversations answering from it (they become general chats if it's deleted)
     created_at: datetime
-    updated_at: datetime
+    updated_at: datetime  # the knowledge base itself (name, description)
+    last_activity_at: datetime | None = None  # latest change to it or any of its documents
