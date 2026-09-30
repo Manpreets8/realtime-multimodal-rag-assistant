@@ -6,7 +6,7 @@ from app.models.document_chunk import EMBEDDING_COLUMN_DIMENSIONS, DocumentChunk
 from app.models.image import ImageUpload
 from app.models.knowledge_base import KnowledgeBase
 from app.models.revoked_token import RevokedToken
-from app.models.user import User
+from app.models.user import User, UserRole
 
 __all__ = [
     "EMBEDDING_COLUMN_DIMENSIONS",
@@ -21,4 +21,5 @@ __all__ = [
     "MessageRole",
     "RevokedToken",
     "User",
+    "UserRole",
 ]

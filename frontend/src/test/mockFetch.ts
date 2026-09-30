@@ -41,6 +41,7 @@ export const TEST_USER = {
   id: '6f1c2f4e-0000-4000-8000-000000000001',
   email: 'ada@example.com',
   full_name: 'Ada Lovelace',
+  role: 'user' as const,
   is_active: true,
   created_at: '2026-09-26T00:00:00Z',
 }

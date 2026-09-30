@@ -16,6 +16,12 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Chat', to: '/chat', icon: 'M4 5h16v11H8l-4 4z' },
 ]
 
+const ADMIN_ITEM: NavItem = {
+  label: 'Admin',
+  to: '/admin',
+  icon: 'M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6z',
+}
+
 function NavIcon({ path }: { path: string }) {
   return (
     <svg
@@ -34,9 +40,11 @@ function NavIcon({ path }: { path: string }) {
 }
 
 function Navigation({ onNavigate }: { onNavigate?: () => void }) {
+  const { user } = useAuth()
+  const items = user?.role === 'admin' ? [...NAV_ITEMS, ADMIN_ITEM] : NAV_ITEMS
   return (
     <nav className="flex flex-col gap-1" aria-label="Main">
-      {NAV_ITEMS.map((item) => (
+      {items.map((item) => (
         <NavLink
           key={item.to}
           to={item.to}

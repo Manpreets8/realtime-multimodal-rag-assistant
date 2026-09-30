@@ -20,6 +20,24 @@ export function RequireAuth() {
   return <Outlet />
 }
 
+/** Administrator pages. The API enforces this too; the guard only avoids showing a page that
+ * would fail on every request. */
+export function RequireAdmin() {
+  const { user } = useAuth()
+
+  if (user?.role !== 'admin') {
+    return (
+      <div className="mx-auto max-w-5xl px-4 py-16 text-center sm:px-8">
+        <h1 className="text-xl font-semibold">Administrators only</h1>
+        <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
+          Your account does not have access to this page.
+        </p>
+      </div>
+    )
+  }
+  return <Outlet />
+}
+
 /** Login/register pages: signed-in users are sent to the app instead. */
 export function RedirectIfAuthenticated() {
   const { status } = useAuth()

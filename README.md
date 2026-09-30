@@ -6,7 +6,7 @@ Mindora AI is a real-time multimodal RAG assistant. Ask questions about your own
 
 Built as a full-stack, production-minded application: FastAPI and PostgreSQL/pgvector behind a React app, a Redis-backed worker for document processing, local models for embeddings, reranking, speech-to-text and text-to-speech, Claude for answers and image understanding, an evaluation harness, and a Docker setup that deploys with HTTPS.
 
-> **Status.** The original 17 build phases are complete, and the Mindora AI upgrade is in progress (phase 1 done). Everything described here is implemented and tested: **482 backend tests** and **126 frontend tests** (backend coverage was 94% when last measured, before the upgrade). The Claude integration is tested against the real SDK with recorded HTTP responses, and has been checked end to end with a real Anthropic API key. The quality of Claude's answers has **not been measured yet**: the answer-quality evaluation is built but has not been run. Retrieval quality has been measured (see [Evaluation](#14-evaluation)).
+> **Status.** The original 17 build phases are complete, and the Mindora AI upgrade is in progress (phases 1 and 2 done). Everything described here is implemented and tested: **493 backend tests** and **132 frontend tests** (backend coverage was 94% when last measured, before the upgrade). The Claude integration is tested against the real SDK with recorded HTTP responses, and has been checked end to end with a real Anthropic API key. The quality of Claude's answers has **not been measured yet**: the answer-quality evaluation is built but has not been run. Retrieval quality has been measured (see [Evaluation](#14-evaluation)).
 
 **Contents:**
 1. [Overview](#1-project-overview)
@@ -47,7 +47,7 @@ What makes it more than a demo:
 
 | Area | What you get |
 |---|---|
-| **Accounts** | Registration, login, logout with server-side token revocation. Argon2 password hashing. A welcome email on sign-up (any SMTP provider). Every resource is private to its owner |
+| **Accounts** | Registration, login, logout with server-side token revocation. Argon2 password hashing. User and admin roles: admins manage accounts (roles, disabling) but never see anyone's content. A welcome email on sign-up (any SMTP provider). Every resource is private to its owner |
 | **Knowledge bases** | Create, rename, delete. Upload PDF, DOCX, TXT and MD (validated by content, 25 MB). Download, re-process, live ingestion progress |
 | **Ingestion** | Text extraction with page and section tracking, cleaning, structure-aware chunking, local embeddings (or Voyage AI), stored in pgvector. Runs in a separate worker process via Redis |
 | **Retrieval** | Hybrid search: pgvector HNSW plus PostgreSQL full text, fused with reciprocal rank fusion, then cross-encoder reranking. A search tab shows scores and timings |
@@ -115,7 +115,7 @@ backend/
     workers/        Redis job queue, ingestion worker, maintenance
     evaluation/     evaluation dataset, metrics, LLM judge, runner, report
   alembic/          database migrations
-  tests/            482 tests (unit, integration against real PostgreSQL/Redis, real-model tests)
+  tests/            493 tests (unit, integration against real PostgreSQL/Redis, real-model tests)
   Dockerfile
 frontend/
   src/
@@ -246,6 +246,7 @@ Interactive OpenAPI docs are served at `/docs` (Swagger UI) and `/redoc`; the sc
 | Area | Endpoints |
 |---|---|
 | Auth | `POST /auth/register`, `POST /auth/login`, `POST /auth/logout`, `GET /auth/me` |
+| Admin (administrators only) | `GET /admin/users` (search, counts), `PATCH /admin/users/{id}` (role, enable/disable) |
 | Knowledge bases | `POST /knowledge-bases`, `GET /knowledge-bases`, `GET/PATCH/DELETE /knowledge-bases/{id}`, `GET /knowledge-bases/{id}/documents` |
 | Documents | `POST /documents/upload`, `GET/DELETE /documents/{id}`, `POST /documents/{id}/reprocess`, `GET /documents/{id}/chunks`, `GET /documents/{id}/download`, `GET /chunks/{id}` |
 | Retrieval and answers | `POST /retrieval/search` (hybrid, vector or keyword), `POST /rag/answer` |

@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.api.routes import (
+    admin,
     auth,
     chat,
     chat_socket,
@@ -30,3 +31,4 @@ api_router.include_router(images.images_router)
 api_router.include_router(images.multimodal_router)
 api_router.include_router(voice.router)
 api_router.include_router(system.router)
+api_router.include_router(admin.router)

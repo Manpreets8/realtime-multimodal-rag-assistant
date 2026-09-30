@@ -1,4 +1,5 @@
-"""Shared FastAPI dependencies. Protect a route with `current_user: CurrentUser`."""
+"""Shared FastAPI dependencies. Protect a route with `current_user: CurrentUser`, or restrict it to
+administrators with `admin: AdminUser`."""
 
 from typing import Annotated
 
@@ -7,7 +8,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import rate_limit
-from app.core.errors import UnauthorizedError
+from app.core.errors import ForbiddenError, UnauthorizedError
 from app.core.security import InvalidTokenError, TokenPayload, decode_access_token
 from app.db.session import get_db
 from app.models import User
@@ -49,6 +50,16 @@ async def get_current_user(
 
 CurrentToken = Annotated[TokenPayload, Depends(get_token_payload)]
 CurrentUser = Annotated[User, Depends(get_current_user)]
+
+
+async def get_admin_user(current_user: CurrentUser) -> User:
+    # The role comes from the database row loaded above, so a demotion applies to the next request.
+    if not current_user.is_admin:
+        raise ForbiddenError("This area is for administrators.")
+    return current_user
+
+
+AdminUser = Annotated[User, Depends(get_admin_user)]
 
 
 def _per_user_limit(scope: rate_limit.Scope):

@@ -53,7 +53,7 @@ def fill(path: str, ids: dict[str, str]) -> str:
 async def test_every_operation_requires_authentication(app: FastAPI, client: AsyncClient) -> None:
     random_ids = {
         name: str(uuid.uuid4())
-        for name in ("kb_id", "document_id", "chunk_id", "conversation_id", "image_id")
+        for name in ("kb_id", "document_id", "chunk_id", "conversation_id", "image_id", "user_id")
     }
     forged = {"Authorization": "Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4In0.forged"}
     failures = []
@@ -172,9 +172,29 @@ def foreign_reference_requests(ids: dict[str, str]) -> list[tuple[str, str, dict
     ]
 
 
+def admin_operations(app: FastAPI) -> list[tuple[str, str]]:
+    return [(m, p) for m, p in operations(app) if p.startswith(f"{API}/admin/")]
+
+
 def test_every_id_route_is_in_the_authorization_matrix(app: FastAPI) -> None:
-    with_ids = {(m, p) for m, p in operations(app) if "{" in p}
+    # Admin routes act on any account by design; they are covered by the admin-only test below.
+    with_ids = {(m, p) for m, p in operations(app) if "{" in p} - set(admin_operations(app))
     assert with_ids == set(ID_ROUTE_BODIES), "add new ID routes to ID_ROUTE_BODIES"
+
+
+async def test_every_admin_operation_is_forbidden_to_regular_users(
+    app: FastAPI, client: AsyncClient, register_user: RegisterFn
+) -> None:
+    user = bearer((await register_user(email="regular@example.com"))["access_token"])
+    target = str(uuid.uuid4())
+    refused = []
+    for method, path in admin_operations(app):
+        body = {"json": {"is_active": False}} if method == "PATCH" else {}
+        response = await client.request(method, fill(path, {"user_id": target}), headers=user, **body)
+        refused.append((method, path, response.status_code, response.json()["error"]["code"]))
+
+    assert admin_operations(app), "no admin operations found"
+    assert all(status == 403 and code == "forbidden" for *_, status, code in refused), refused
 
 
 async def test_other_users_resources_are_not_found(

@@ -3,8 +3,9 @@ import { Route, Routes, useLocation } from 'react-router'
 import { ErrorBoundary } from './components/ErrorBoundary'
 
 import { AppShell } from './components/layout/AppShell'
-import { RedirectIfAuthenticated, RequireAuth } from './components/routing/RouteGuards'
+import { RedirectIfAuthenticated, RequireAdmin, RequireAuth } from './components/routing/RouteGuards'
 import { AuthProvider } from './contexts/AuthProvider'
+import AdminPage from './pages/AdminPage'
 import ChatPage from './pages/ChatPage'
 import DashboardPage from './pages/DashboardPage'
 import KnowledgeBaseDetailPage from './pages/KnowledgeBaseDetailPage'
@@ -31,6 +32,9 @@ export default function App() {
               <Route path="knowledge-bases/:kbId" element={<KnowledgeBaseDetailPage />} />
               <Route path="chat" element={<ChatPage />} />
               <Route path="chat/:conversationId" element={<ChatPage />} />
+              <Route element={<RequireAdmin />}>
+                <Route path="admin" element={<AdminPage />} />
+              </Route>
             </Route>
           </Route>
           <Route path="*" element={<NotFoundPage />} />
