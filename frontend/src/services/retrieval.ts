@@ -1,6 +1,7 @@
 import { apiRequest } from './api'
 
 export type SearchMode = 'hybrid' | 'vector' | 'keyword'
+export type FusionMethod = 'rrf' | 'weighted'
 
 export interface SearchHit {
   chunk_id: string
@@ -29,6 +30,8 @@ export interface SearchResponse {
   /** Documents matching the filters (null when no filters were sent). */
   filter_documents?: number | null
   similarity_threshold: number
+  /** The parameters the search actually used (server settings plus any overrides). */
+  parameters?: SearchParameters | null
   timings_ms: Record<string, number>
 }
 
@@ -38,6 +41,24 @@ export interface SearchRequest {
   mode?: SearchMode
   limit?: number
   filters?: SearchFilters
+  options?: SearchOptions
+}
+
+/** Per-search overrides of the server's retrieval settings; omitted fields use the server's. */
+export interface SearchOptions {
+  candidates?: number // per retriever, before fusion (1-100)
+  similarity_threshold?: number // 0-1
+  fusion?: FusionMethod
+  alpha?: number // weighted fusion: weight of semantic similarity, 0-1
+}
+
+export interface SearchParameters {
+  candidates: number
+  limit: number
+  similarity_threshold: number
+  fusion: FusionMethod
+  alpha: number
+  dedup_threshold: number | null
 }
 
 /** Restrict retrieval to some documents; empty fields don't filter. */

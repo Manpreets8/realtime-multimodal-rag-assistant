@@ -33,6 +33,11 @@ MAX_QUERY_LENGTH = 2000
 RRF_K = 60
 
 
+class FusionMethod(StrEnum):
+    RRF = "rrf"  # reciprocal rank fusion: ranks only, no score normalisation (the default)
+    WEIGHTED = "weighted"  # alpha * normalised similarity + (1 - alpha) * normalised keyword rank
+
+
 class SearchMode(StrEnum):
     HYBRID = "hybrid"
     VECTOR = "vector"
@@ -63,7 +68,7 @@ class RetrievedChunk:
     page_number: int | None
     section: str | None
     content: str
-    score: float  # fused RRF score (or the single retriever's score in vector/keyword mode)
+    score: float  # fused score (RRF or weighted), or the single retriever's score in vector/keyword mode
     similarity: float | None  # cosine similarity to the query, 0..1 for normalised embeddings
     keyword_score: float | None  # ts_rank_cd, when the chunk matched the keyword search
     vector_rank: int | None
@@ -97,6 +102,33 @@ def reciprocal_rank_fusion(rankings: Sequence[Sequence[uuid.UUID]], k: int = RRF
         for rank, item in enumerate(ranking, start=1):
             scores[item] = scores.get(item, 0.0) + 1.0 / (k + rank)
     return scores
+
+
+def _min_max(scores: dict[uuid.UUID, float]) -> dict[uuid.UUID, float]:
+    """Scale to 0..1 within this result list (all equal -> 1.0)."""
+    if not scores:
+        return {}
+    low, high = min(scores.values()), max(scores.values())
+    if high == low:
+        return dict.fromkeys(scores, 1.0)
+    return {key: (value - low) / (high - low) for key, value in scores.items()}
+
+
+def weighted_fusion(
+    vector_hits: Sequence[tuple[uuid.UUID, float]],
+    keyword_hits: Sequence[tuple[uuid.UUID, float]],
+    alpha: float,
+) -> dict[uuid.UUID, float]:
+    """Convex combination of min-max normalised scores: alpha weights semantic similarity,
+    1 - alpha keyword relevance. A chunk missing from one list gets 0 for it. Unlike RRF this
+    uses the score gaps, not just the order, which is why it needs normalising: cosine
+    similarity and ts_rank_cd are on unrelated scales."""
+    vector = _min_max(dict(vector_hits))
+    keyword = _min_max(dict(keyword_hits))
+    return {
+        chunk_id: alpha * vector.get(chunk_id, 0.0) + (1 - alpha) * keyword.get(chunk_id, 0.0)
+        for chunk_id in vector.keys() | keyword.keys()
+    }
 
 
 def _ms(started: float) -> float:
@@ -211,6 +243,8 @@ async def retrieve(
     mode: SearchMode = SearchMode.HYBRID,
     filters: RetrievalFilters | None = None,
     dedup_threshold: float | None = None,
+    fusion: FusionMethod = FusionMethod.RRF,
+    alpha: float = 0.5,
 ) -> RetrievalResult:
     """Return up to `limit` chunks relevant to `query`.
 
@@ -269,7 +303,9 @@ async def retrieve(
     vector_rank = {chunk_id: rank for rank, (chunk_id, _) in enumerate(vector_hits, start=1)}
     keyword_rank = {chunk_id: rank for rank, (chunk_id, _) in enumerate(keyword_hits, start=1)}
     keyword_score = dict(keyword_hits)
-    if mode is SearchMode.HYBRID:
+    if mode is SearchMode.HYBRID and fusion is FusionMethod.WEIGHTED:
+        scores = weighted_fusion(vector_hits, keyword_hits, alpha)
+    elif mode is SearchMode.HYBRID:
         scores = reciprocal_rank_fusion([[c for c, _ in vector_hits], [c for c, _ in keyword_hits]])
     else:
         scores = dict(vector_hits or keyword_hits)
@@ -328,6 +364,7 @@ async def retrieve(
         "retrieval_completed",
         extra={
             "mode": mode.value,
+            "fusion": fusion.value if mode is SearchMode.HYBRID else None,
             "query_chars": len(query),  # the query text itself is not logged (may be sensitive)
             "knowledge_bases": len(knowledge_base_ids),
             "vector_candidates": result.vector_candidates,

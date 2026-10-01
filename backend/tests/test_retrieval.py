@@ -5,7 +5,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.rag.retrieval import SearchMode, normalize_query, reciprocal_rank_fusion, retrieve
+from app.rag.retrieval import SearchMode, normalize_query, reciprocal_rank_fusion, retrieve, weighted_fusion
 from app.services.ingestion_service import process_document
 from tests.conftest import RegisterFn, bearer
 from tests.fakes import HashingEmbeddingProvider
@@ -280,3 +280,64 @@ async def test_default_threshold_separates_relevant_from_off_topic_with_the_real
     assert direct["results"][0]["similarity"] >= 0.5
     assert off_topic["results"] == []
     assert off_topic["filtered_out"] == 2
+
+
+# --- fusion methods and per-search options --------------------------------------------------------
+
+
+def test_weighted_fusion_normalises_each_list_and_weights_them() -> None:
+    a, b, c = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    vector = [(a, 0.9), (b, 0.6), (c, 0.3)]  # a best semantically
+    keyword = [(c, 0.5), (b, 0.1)]  # c best by keywords; a not matched
+
+    semantic_only = weighted_fusion(vector, keyword, 1.0)
+    keyword_only = weighted_fusion(vector, keyword, 0.0)
+    even = weighted_fusion(vector, keyword, 0.5)
+
+    assert semantic_only == pytest.approx({a: 1.0, b: 0.5, c: 0.0})
+    assert keyword_only == pytest.approx({a: 0.0, b: 0.0, c: 1.0})  # missing from a list = 0 for it
+    assert even[c] == pytest.approx(0.5) and even[a] == pytest.approx(0.5) and even[b] == pytest.approx(0.25)
+    single = weighted_fusion([(a, 0.42)], [], 0.5)
+    assert single == {a: 0.5}  # one candidate normalises to 1.0, not a division by zero
+
+
+async def test_search_options_override_the_server_settings(
+    client: AsyncClient, alice: dict, handbook: str, low_threshold: None
+) -> None:
+    default = await search(client, alice, [handbook], "annual leave days")
+    semantic_weighted = await search(
+        client,
+        alice,
+        [handbook],
+        "annual leave days",
+        options={"fusion": "weighted", "alpha": 1.0, "candidates": 2},
+    )
+
+    assert (
+        default["parameters"]["fusion"] == "rrf"
+        and default["parameters"]["candidates"] == get_settings().top_k
+    )
+    params = semantic_weighted["parameters"]
+    assert (params["fusion"], params["alpha"], params["candidates"]) == ("weighted", 1.0, 2)
+    assert semantic_weighted["vector_candidates"] <= 2
+    # alpha = 1 ranks purely by similarity (keyword-only matches, kept despite low similarity, come last).
+    similarities = [hit["similarity"] for hit in semantic_weighted["results"]]
+    assert similarities == sorted(similarities, reverse=True)
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        {"alpha": 1.5},
+        {"candidates": 0},
+        {"candidates": 500},
+        {"fusion": "max"},
+        {"similarity_threshold": -0.1},
+    ],
+)
+async def test_invalid_search_options(client: AsyncClient, alice: dict, handbook: str, options: dict) -> None:
+    response = await client.post(
+        SEARCH, json={"query": "leave", "knowledge_base_ids": [handbook], "options": options}, headers=alice
+    )
+
+    assert response.status_code == 422

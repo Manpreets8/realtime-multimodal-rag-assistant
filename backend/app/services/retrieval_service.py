@@ -7,8 +7,8 @@ from app.core.config import get_settings
 from app.core.errors import NotFoundError
 from app.models import KnowledgeBase
 from app.rag import embeddings
-from app.rag.retrieval import RetrievalFilters, RetrievalResult, SearchMode, retrieve
-from app.schemas.retrieval import SearchHit, SearchRequest, SearchResponse
+from app.rag.retrieval import FusionMethod, RetrievalFilters, RetrievalResult, SearchMode, retrieve
+from app.schemas.retrieval import SearchHit, SearchOptions, SearchParameters, SearchRequest, SearchResponse
 
 
 async def ensure_knowledge_bases_owned(
@@ -35,26 +35,43 @@ async def search(
     mode: SearchMode = SearchMode.HYBRID,
     limit: int | None = None,
     filters: RetrievalFilters | None = None,
-) -> RetrievalResult:
+    options: SearchOptions | None = None,
+) -> tuple[RetrievalResult, SearchParameters]:
     settings = get_settings()
     await ensure_knowledge_bases_owned(db, user_id, knowledge_base_ids)
-    return await retrieve(
+    options = options or SearchOptions()
+    parameters = SearchParameters(
+        candidates=options.candidates or settings.top_k,
+        limit=limit or settings.rerank_top_k,
+        similarity_threshold=(
+            options.similarity_threshold
+            if options.similarity_threshold is not None
+            else settings.similarity_threshold
+        ),
+        fusion=options.fusion or FusionMethod(settings.retrieval_fusion),
+        alpha=options.alpha if options.alpha is not None else settings.hybrid_alpha,
+        dedup_threshold=settings.dedup_threshold,
+    )
+    result = await retrieve(
         db,
         embeddings.get_embedding_provider(),
         user_id=user_id,
         knowledge_base_ids=knowledge_base_ids,
         query=query,
-        candidates=settings.top_k,
-        limit=limit or settings.rerank_top_k,
-        similarity_threshold=settings.similarity_threshold,
+        candidates=parameters.candidates,
+        limit=parameters.limit,
+        similarity_threshold=parameters.similarity_threshold,
         mode=mode,
         filters=filters,
-        dedup_threshold=settings.dedup_threshold,
+        dedup_threshold=parameters.dedup_threshold,
+        fusion=parameters.fusion,
+        alpha=parameters.alpha,
     )
+    return result, parameters
 
 
 async def search_request(db: AsyncSession, user_id: uuid.UUID, request: SearchRequest) -> SearchResponse:
-    result = await search(
+    result, parameters = await search(
         db,
         user_id,
         request.knowledge_base_ids,
@@ -62,6 +79,7 @@ async def search_request(db: AsyncSession, user_id: uuid.UUID, request: SearchRe
         mode=request.mode,
         limit=request.limit,
         filters=request.filters.to_filters() if request.filters else None,
+        options=request.options,
     )
     return SearchResponse(
         query=result.query,
@@ -72,6 +90,7 @@ async def search_request(db: AsyncSession, user_id: uuid.UUID, request: SearchRe
         filtered_out=result.filtered_out,
         duplicates_removed=result.duplicates_removed,
         filter_documents=result.filter_documents,
-        similarity_threshold=get_settings().similarity_threshold,
+        similarity_threshold=parameters.similarity_threshold,
+        parameters=parameters,
         timings_ms=result.timings_ms,
     )

@@ -182,6 +182,11 @@ class Settings(BaseSettings):
     # for bge-small-en-v1.5 (off-topic queries <= 0.43, relevant >= 0.61). Re-measure if
     # the embedding model changes.
     similarity_threshold: float = Field(default=0.5, ge=0.0, le=1.0)
+    # How hybrid search combines its two result lists: rrf (ranks only) or weighted
+    # (HYBRID_ALPHA * normalised similarity + (1 - HYBRID_ALPHA) * normalised keyword rank).
+    # RRF stays the default after measuring both: evaluation/results/experiment-fusion.md.
+    retrieval_fusion: Literal["rrf", "weighted"] = "rrf"
+    hybrid_alpha: float = Field(default=0.5, ge=0.0, le=1.0)
     # Reranking: the top RERANK_CANDIDATES fused results are re-scored by a cross-encoder
     # and the best RERANK_TOP_K are given to the LLM.
     reranker_provider: RerankerProviderName = RerankerProviderName.LOCAL

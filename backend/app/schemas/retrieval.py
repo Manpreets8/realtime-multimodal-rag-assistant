@@ -3,7 +3,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.rag.retrieval import MAX_QUERY_LENGTH, RetrievalFilters, SearchMode
+from app.rag.retrieval import MAX_QUERY_LENGTH, FusionMethod, RetrievalFilters, SearchMode
 from app.utils.files import SUPPORTED_FILE_TYPES
 
 MAX_KNOWLEDGE_BASES_PER_SEARCH = 10
@@ -36,12 +36,38 @@ class SearchFilters(BaseModel):
         )
 
 
+class SearchOptions(BaseModel):
+    """Per-search overrides of the server's retrieval settings, for exploring how hybrid search
+    behaves (the Search tab's advanced settings). Answers and chat always use the server settings."""
+
+    candidates: int | None = Field(
+        default=None, ge=1, le=100, description="Per retriever, before fusion (TOP_K)"
+    )
+    similarity_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
+    fusion: FusionMethod | None = None
+    alpha: float | None = Field(
+        default=None, ge=0.0, le=1.0, description="Weighted fusion: weight of similarity"
+    )
+
+
+class SearchParameters(BaseModel):
+    """The parameters a search actually used (server settings plus any overrides)."""
+
+    candidates: int
+    limit: int
+    similarity_threshold: float
+    fusion: FusionMethod
+    alpha: float
+    dedup_threshold: float | None
+
+
 class SearchRequest(BaseModel):
     query: str = Field(min_length=1, max_length=MAX_QUERY_LENGTH)
     knowledge_base_ids: list[uuid.UUID] = Field(min_length=1, max_length=MAX_KNOWLEDGE_BASES_PER_SEARCH)
     mode: SearchMode = SearchMode.HYBRID
     limit: int | None = Field(default=None, ge=1, le=50, description="Defaults to RERANK_TOP_K")
     filters: SearchFilters | None = None
+    options: SearchOptions | None = None
 
     @field_validator("query")
     @classmethod
@@ -84,4 +110,5 @@ class SearchResponse(BaseModel):
     duplicates_removed: int = Field(default=0, description="Near-duplicate passages dropped")
     filter_documents: int | None = Field(default=None, description="Documents matching the filters, if any")
     similarity_threshold: float
+    parameters: SearchParameters | None = None
     timings_ms: dict[str, float]

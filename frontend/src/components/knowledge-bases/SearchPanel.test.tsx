@@ -1,4 +1,4 @@
-import { screen, within } from '@testing-library/react'
+import { fireEvent, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 
@@ -188,5 +188,69 @@ describe('Search result viewer', () => {
     expect(screen.getByRole('button', { name: 'PDF' })).toHaveAttribute('aria-pressed', 'true')
     const [, init] = fetchSpy.mock.calls.find(([url]) => String(url).endsWith('/retrieval/search'))!
     expect(JSON.parse(String(init!.body)).filters).toEqual({ file_types: ['.pdf'] })
+  })
+})
+
+describe('Advanced search settings', () => {
+  const PARAMETERS = { candidates: 8, limit: 5, similarity_threshold: 0.3, fusion: 'weighted', alpha: 0.7, dedup_threshold: 0.9 } as const
+
+  it('sends only the overrides that were set and shows the parameters the search used', async () => {
+    const fetchSpy = backend(() => json({ ...RESPONSE, parameters: PARAMETERS }))
+    renderSignedIn('/knowledge-bases/kb-1?tab=search')
+
+    await userEvent.type(await screen.findByLabelText('Search this knowledge base'), 'annual leave days')
+    await userEvent.click(screen.getByText('Advanced settings'))
+    await userEvent.type(screen.getByLabelText('Candidates per retriever'), '8')
+    await userEvent.type(screen.getByLabelText('Similarity threshold'), '0.3')
+    await userEvent.selectOptions(screen.getByLabelText('Fusion (hybrid)'), 'weighted')
+    const slider = screen.getByLabelText(/Weight: semantic 50% · keyword 50%/)
+    fireEvent.change(slider, { target: { value: '0.7' } }) // jsdom has no slider keyboard support
+    expect(screen.getByLabelText(/Weight: semantic 70% · keyword 30%/)).toBeInTheDocument()
+    expect(screen.getByText('Advanced settings (customised)')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Search' }))
+
+    expect(await screen.findByTestId('search-parameters')).toHaveTextContent(
+      'Used: 8 candidates per retriever · similarity ≥ 0.3 · Weighted scores (semantic weight 0.7)',
+    )
+    const [, init] = fetchSpy.mock.calls.find(([url]) => String(url).endsWith('/retrieval/search'))!
+    expect(JSON.parse(String(init!.body)).options).toEqual({ candidates: 8, similarity_threshold: 0.3, fusion: 'weighted', alpha: 0.7 })
+  })
+
+  it('drops overrides that do not apply to the mode and resets to the server settings', async () => {
+    const fetchSpy = backend(() => json(RESPONSE))
+    renderSignedIn('/knowledge-bases/kb-1?tab=search')
+
+    await userEvent.type(await screen.findByLabelText('Search this knowledge base'), 'SEV2')
+    await userEvent.click(screen.getByText('Advanced settings'))
+    await userEvent.type(screen.getByLabelText('Similarity threshold'), '0.4')
+    await userEvent.selectOptions(screen.getByLabelText('Fusion (hybrid)'), 'rrf')
+    await userEvent.click(screen.getByRole('radio', { name: 'Keyword' }))
+    expect(screen.getByLabelText('Similarity threshold')).toBeDisabled()
+    expect(screen.getByLabelText('Fusion (hybrid)')).toBeDisabled()
+    await userEvent.click(screen.getByRole('button', { name: 'Search' }))
+    await screen.findByTestId('search-diagnostics')
+    const bodies = () =>
+      fetchSpy.mock.calls.filter(([url]) => String(url).endsWith('/retrieval/search')).map(([, init]) => JSON.parse(String(init!.body)))
+    expect(bodies()[0].options).toBeUndefined()
+
+    await userEvent.click(screen.getByRole('radio', { name: 'Hybrid' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Reset to server settings' }))
+    expect(screen.getByLabelText('Similarity threshold')).toHaveValue(null)
+    expect(screen.queryByRole('button', { name: 'Reset to server settings' })).not.toBeInTheDocument()
+  })
+
+  it('blocks searching with out-of-range values', async () => {
+    const fetchSpy = backend(() => json(RESPONSE))
+    renderSignedIn('/knowledge-bases/kb-1?tab=search')
+
+    await userEvent.type(await screen.findByLabelText('Search this knowledge base'), 'leave')
+    await userEvent.click(screen.getByText('Advanced settings'))
+    await userEvent.type(screen.getByLabelText('Candidates per retriever'), '500')
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Candidates must be a whole number from 1 to 100')
+    expect(screen.getByRole('button', { name: 'Search' })).toBeDisabled()
+    await userEvent.clear(screen.getByLabelText('Candidates per retriever'))
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(fetchSpy.mock.calls.some(([url]) => String(url).endsWith('/retrieval/search'))).toBe(false)
   })
 })

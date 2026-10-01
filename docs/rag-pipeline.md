@@ -117,7 +117,7 @@ question
 
 ## Retrieval
 
-`POST /api/v1/retrieval/search` with body `{"query", "knowledge_base_ids", "mode": "hybrid" | "vector" | "keyword", "limit"}` returns the chunks the RAG pipeline will use as context. Each hit includes its document, page and section, cosine similarity, keyword rank and fused score, and the response includes per-stage timings. In the UI this is the **Search** tab of a knowledge base.
+`POST /api/v1/retrieval/search` with body `{"query", "knowledge_base_ids", "mode": "hybrid" | "vector" | "keyword", "limit", "filters", "options"}` returns the chunks the RAG pipeline will use as context. Each hit includes its document, page and section, cosine similarity, keyword rank and fused score, and the response includes per-stage timings. In the UI this is the **Search** tab of a knowledge base.
 
 ```
 query ─► normalise ─► embed_query ─┬─► vector search (HNSW, cosine, TOP_K) ─┐
@@ -126,7 +126,8 @@ query ─► normalise ─► embed_query ─┬─► vector search (HNSW, cosi
 
 - **Vector search:** pgvector cosine distance on the HNSW index, filtered by user and knowledge base. `hnsw.iterative_scan` (pgvector 0.8+) keeps searching when the filter discards candidates, so filtered queries still return `TOP_K` rows.
 - **Keyword search:** Postgres full text over the generated `tsvector`. The query's lexemes are OR-ed rather than AND-ed: a natural question like "what does ERR-4521 mean on my laptop" would match nothing if every word were required. Ranked with `ts_rank_cd`.
-- **Fusion:** Reciprocal Rank Fusion (k = 60). Chunks found by both retrievers rise to the top, and the two retrievers' incomparable scores never need normalising.
+- **Fusion:** Reciprocal Rank Fusion (k = 60) by default. Chunks found by both retrievers rise to the top, and the two retrievers' incomparable scores never need normalising. `RETRIEVAL_FUSION=weighted` uses `HYBRID_ALPHA * similarity + (1 - HYBRID_ALPHA) * keyword score` instead, each min-max normalised within its list. Measured on the evaluation set, RRF was as good or better than every weight tried ([experiment](../evaluation/results/experiment-fusion.md)), so it stays the default.
+- **Per-search overrides:** `options` (`candidates` per retriever 1–100, `similarity_threshold` 0–1, `fusion`, `alpha` 0–1) override the server settings for that search only, and the response's `parameters` reports what was actually used. The Search tab exposes them under **Advanced settings**. Chat and `/rag/answer` always use the server settings.
 - **Relevance threshold:** a chunk is kept if its cosine similarity is at least `SIMILARITY_THRESHOLD`, **or** it matched the keyword search, because exact terms such as error codes and names count even when similarity is modest.
 - **Isolation:** knowledge-base ownership is checked first (404 otherwise), and `retrieve()` also filters by `user_id`, as defence in depth.
 - **Privacy:** logs record query length, candidate counts and timings, never the query text.

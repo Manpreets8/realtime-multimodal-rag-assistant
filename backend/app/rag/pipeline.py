@@ -46,7 +46,7 @@ from app.rag.prompts import (
     build_grounded_messages,
 )
 from app.rag.reranking import RankedChunk, Reranker, rerank_or_fallback
-from app.rag.retrieval import RetrievalFilters, RetrievalResult, normalize_query, retrieve
+from app.rag.retrieval import FusionMethod, RetrievalFilters, RetrievalResult, normalize_query, retrieve
 
 logger = logging.getLogger(__name__)
 
@@ -254,6 +254,8 @@ async def answer_question(
         similarity_threshold=similarity_threshold,
         filters=filters,
         dedup_threshold=settings.dedup_threshold,
+        fusion=FusionMethod(settings.retrieval_fusion),
+        alpha=settings.hybrid_alpha,
     )
     timings = {"retrieval": _ms(stage)}
 

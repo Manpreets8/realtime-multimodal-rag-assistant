@@ -45,7 +45,7 @@ from app.rag.context import select_context
 from app.rag.embeddings import EmbeddingProvider
 from app.rag.pipeline import AnswerType, answer_question
 from app.rag.reranking import RankedChunk, Reranker, rerank_or_fallback
-from app.rag.retrieval import SearchMode, retrieve
+from app.rag.retrieval import FusionMethod, SearchMode, retrieve
 from app.services import document_service
 from app.services.ingestion_service import process_document
 from app.services.storage import LocalFileStorage
@@ -259,6 +259,8 @@ async def evaluate_retrieval(
                 similarity_threshold=settings.similarity_threshold,
                 mode=config.mode,
                 dedup_threshold=settings.dedup_threshold,
+                fusion=FusionMethod(settings.retrieval_fusion),
+                alpha=settings.hybrid_alpha,
             )
         if config.rerank:
             # Exactly the production selection: rerank every candidate, then threshold/top-k/budget.

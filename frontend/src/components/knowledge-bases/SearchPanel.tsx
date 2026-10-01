@@ -1,13 +1,20 @@
 import { useCallback, useState, type FormEvent, type ReactNode } from 'react'
 
 import { ApiError } from '../../services/api'
-import { search, type SearchHit, type SearchMode, type SearchResponse } from '../../services/retrieval'
+import {
+  search,
+  type FusionMethod,
+  type SearchHit,
+  type SearchMode,
+  type SearchOptions,
+  type SearchResponse,
+} from '../../services/retrieval'
 import { SourceViewer, type ViewedSource } from '../citations/SourceViewer'
 import { ErrorAlert } from '../ui/Alert'
 import { Button } from '../ui/Button'
 
 const MODES: { value: SearchMode; label: string; hint: string }[] = [
-  { value: 'hybrid', label: 'Hybrid', hint: 'Meaning + exact words, merged with reciprocal rank fusion' },
+  { value: 'hybrid', label: 'Hybrid', hint: 'Meaning + exact words, merged into one ranking' },
   { value: 'vector', label: 'Semantic', hint: 'Embedding similarity only' },
   { value: 'keyword', label: 'Keyword', hint: 'Postgres full-text search only' },
 ]
@@ -49,6 +56,143 @@ function highlight(text: string, query: string): ReactNode[] {
     ) : (
       part
     ),
+  )
+}
+
+const FUSION_LABELS: Record<FusionMethod, string> = { rrf: 'Reciprocal rank fusion', weighted: 'Weighted scores' }
+
+const inputClass =
+  'block w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-sm shadow-xs outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 dark:border-slate-700 dark:bg-slate-900'
+
+/** Advanced settings as typed. Empty fields mean "use the server setting". */
+interface AdvancedSettings {
+  candidates: string
+  threshold: string
+  fusion: '' | FusionMethod
+  alpha: number
+}
+
+const NO_OVERRIDES: AdvancedSettings = { candidates: '', threshold: '', fusion: '', alpha: 0.5 }
+
+/** Overrides to send (only those that apply to the mode), or undefined when none are set. */
+function toSearchOptions(settings: AdvancedSettings, mode: SearchMode): SearchOptions | undefined {
+  const options: SearchOptions = {}
+  if (settings.candidates.trim()) options.candidates = Number(settings.candidates)
+  if (settings.threshold.trim() && mode !== 'keyword') options.similarity_threshold = Number(settings.threshold)
+  if (settings.fusion && mode === 'hybrid') {
+    options.fusion = settings.fusion
+    if (settings.fusion === 'weighted') options.alpha = settings.alpha
+  }
+  return Object.keys(options).length ? options : undefined
+}
+
+function validSettings(settings: AdvancedSettings): boolean {
+  const candidates = settings.candidates.trim()
+  const threshold = settings.threshold.trim()
+  return (
+    (!candidates || (Number.isInteger(Number(candidates)) && Number(candidates) >= 1 && Number(candidates) <= 100)) &&
+    (!threshold || (Number(threshold) >= 0 && Number(threshold) <= 1))
+  )
+}
+
+function AdvancedSearchSettings({
+  settings,
+  mode,
+  onChange,
+}: {
+  settings: AdvancedSettings
+  mode: SearchMode
+  onChange: (settings: AdvancedSettings) => void
+}) {
+  const overridden = toSearchOptions(settings, mode) !== undefined
+  return (
+    <details className="rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800" data-testid="advanced-search">
+      <summary className="cursor-pointer text-xs font-medium text-slate-600 dark:text-slate-400">
+        Advanced settings{overridden ? ' (customised)' : ''}
+      </summary>
+      <p className="mt-2 text-xs text-slate-600 dark:text-slate-400">
+        Explore how retrieval behaves on your documents. Leave a field empty to use the server setting. Chat answers always
+        use the server settings.
+      </p>
+      <div className="mt-3 grid gap-3 sm:grid-cols-3">
+        <div>
+          <label htmlFor="adv-candidates" className="text-xs font-medium">
+            Candidates per retriever
+          </label>
+          <input
+            id="adv-candidates"
+            type="number"
+            min={1}
+            max={100}
+            step={1}
+            inputMode="numeric"
+            placeholder="Server setting"
+            value={settings.candidates}
+            onChange={(e) => onChange({ ...settings, candidates: e.target.value })}
+            className={inputClass}
+          />
+        </div>
+        <div>
+          <label htmlFor="adv-threshold" className="text-xs font-medium">
+            Similarity threshold
+          </label>
+          <input
+            id="adv-threshold"
+            type="number"
+            min={0}
+            max={1}
+            step={0.05}
+            placeholder="Server setting"
+            disabled={mode === 'keyword'}
+            value={settings.threshold}
+            onChange={(e) => onChange({ ...settings, threshold: e.target.value })}
+            className={`${inputClass} disabled:opacity-50`}
+          />
+        </div>
+        <div>
+          <label htmlFor="adv-fusion" className="text-xs font-medium">
+            Fusion (hybrid)
+          </label>
+          <select
+            id="adv-fusion"
+            disabled={mode !== 'hybrid'}
+            value={settings.fusion}
+            onChange={(e) => onChange({ ...settings, fusion: e.target.value as AdvancedSettings['fusion'] })}
+            className={`${inputClass} disabled:opacity-50`}
+          >
+            <option value="">Server setting</option>
+            <option value="rrf">{FUSION_LABELS.rrf}</option>
+            <option value="weighted">{FUSION_LABELS.weighted}</option>
+          </select>
+        </div>
+      </div>
+      {mode === 'hybrid' && settings.fusion === 'weighted' && (
+        <div className="mt-3">
+          <label htmlFor="adv-alpha" className="text-xs font-medium">
+            Weight: semantic {Math.round(settings.alpha * 100)}% · keyword {Math.round((1 - settings.alpha) * 100)}%
+          </label>
+          <input
+            id="adv-alpha"
+            type="range"
+            min={0}
+            max={1}
+            step={0.05}
+            value={settings.alpha}
+            onChange={(e) => onChange({ ...settings, alpha: Number(e.target.value) })}
+            className="block w-full accent-brand-600"
+          />
+        </div>
+      )}
+      {overridden && (
+        <button
+          type="button"
+          onClick={() => onChange(NO_OVERRIDES)}
+          className="mt-2 text-xs font-medium text-brand-600 hover:underline dark:text-brand-300"
+        >
+          Reset to server settings
+        </button>
+      )}
+    </details>
   )
 }
 
@@ -100,6 +244,8 @@ export function SearchPanel({ knowledgeBaseId, hasIndexedDocuments }: { knowledg
   const [query, setQuery] = useState('')
   const [mode, setMode] = useState<SearchMode>('hybrid')
   const [fileTypes, setFileTypes] = useState<string[]>([])
+  const [advanced, setAdvanced] = useState<AdvancedSettings>(NO_OVERRIDES)
+  const settingsValid = validSettings(advanced)
   const [response, setResponse] = useState<SearchResponse | null>(null)
   const [error, setError] = useState<ApiError | null>(null)
   const [searching, setSearching] = useState(false)
@@ -108,7 +254,7 @@ export function SearchPanel({ knowledgeBaseId, hasIndexedDocuments }: { knowledg
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!query.trim()) return
+    if (!query.trim() || !settingsValid) return
     setSearching(true)
     setError(null)
     try {
@@ -118,6 +264,7 @@ export function SearchPanel({ knowledgeBaseId, hasIndexedDocuments }: { knowledg
           knowledge_base_ids: [knowledgeBaseId],
           mode,
           filters: fileTypes.length ? { file_types: fileTypes } : undefined,
+          options: toSearchOptions(advanced, mode),
         }),
       )
     } catch (err) {
@@ -144,7 +291,7 @@ export function SearchPanel({ knowledgeBaseId, hasIndexedDocuments }: { knowledg
             placeholder="Ask something, e.g. How many days of annual leave do I get?"
             className="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-xs outline-none placeholder:text-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 dark:border-slate-700 dark:bg-slate-900"
           />
-          <Button type="submit" loading={searching} disabled={!query.trim()}>
+          <Button type="submit" loading={searching} disabled={!query.trim() || !settingsValid}>
             Search
           </Button>
         </div>
@@ -194,6 +341,12 @@ export function SearchPanel({ knowledgeBaseId, hasIndexedDocuments }: { knowledg
           })}
           {fileTypes.length === 0 && <span className="text-xs text-slate-500 dark:text-slate-400">all</span>}
         </fieldset>
+        <AdvancedSearchSettings settings={advanced} mode={mode} onChange={setAdvanced} />
+        {!settingsValid && (
+          <p className="text-xs text-red-700 dark:text-red-300" role="alert">
+            Candidates must be a whole number from 1 to 100, and the similarity threshold between 0 and 1.
+          </p>
+        )}
       </form>
 
       {!hasIndexedDocuments && (
@@ -248,6 +401,16 @@ export function SearchPanel({ knowledgeBaseId, hasIndexedDocuments }: { knowledg
               .map(([name, ms]) => `${TIMING_LABELS[name]} ${ms.toFixed(ms < 10 ? 1 : 0)} ms`)
               .join(' · ')}
           </p>
+          {response.parameters && (
+            <p className="text-xs text-slate-500 dark:text-slate-400" data-testid="search-parameters">
+              Used: {response.parameters.candidates} candidates per retriever
+              {response.mode !== 'keyword' && ` · similarity ≥ ${response.parameters.similarity_threshold}`}
+              {response.mode === 'hybrid' &&
+                ` · ${FUSION_LABELS[response.parameters.fusion]}${
+                  response.parameters.fusion === 'weighted' ? ` (semantic weight ${response.parameters.alpha})` : ''
+                }`}
+            </p>
+          )}
         </section>
       )}
       {viewing && <SourceViewer source={viewing} onClose={closeViewer} />}
