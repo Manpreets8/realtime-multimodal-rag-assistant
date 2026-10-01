@@ -67,7 +67,16 @@ TTS_DEFAULT_VOICES: dict[TTSProviderName, str] = {
 
 class RerankerProviderName(StrEnum):
     LOCAL = "local"  # fastembed cross-encoder on this machine
+    VOYAGE = "voyage"  # Voyage AI hosted rerank API (RERANKER_API_KEY)
     NONE = "none"  # keep the retrieval (RRF) order
+
+
+# Used when RERANKER_MODEL is left empty.
+RERANKER_DEFAULT_MODELS: dict[RerankerProviderName, str] = {
+    RerankerProviderName.LOCAL: "Xenova/ms-marco-MiniLM-L-6-v2",
+    RerankerProviderName.VOYAGE: "rerank-2.5",
+    RerankerProviderName.NONE: "",
+}
 
 
 class Settings(BaseSettings):
@@ -187,10 +196,14 @@ class Settings(BaseSettings):
     # RRF stays the default after measuring both: evaluation/results/experiment-fusion.md.
     retrieval_fusion: Literal["rrf", "weighted"] = "rrf"
     hybrid_alpha: float = Field(default=0.5, ge=0.0, le=1.0)
-    # Reranking: the top RERANK_CANDIDATES fused results are re-scored by a cross-encoder
-    # and the best RERANK_TOP_K are given to the LLM.
+    # Reranking: the top RERANK_CANDIDATES fused results are re-scored by a reranker
+    # (local cross-encoder or a hosted API) and context selection keeps the best RERANK_TOP_K.
+    # Scores are model-specific (cross-encoder logits vs Voyage's 0..1), so RERANK_MIN_SCORE
+    # must be chosen for the configured model.
     reranker_provider: RerankerProviderName = RerankerProviderName.LOCAL
-    reranker_model: str = "Xenova/ms-marco-MiniLM-L-6-v2"
+    reranker_model: str = ""  # empty = the provider's default (RERANKER_DEFAULT_MODELS)
+    reranker_api_key: SecretStr | None = None
+    reranker_timeout_seconds: float = Field(default=30.0, gt=0)
     rerank_candidates: int = Field(default=20, ge=1, le=100)
 
     # --- Chat --------------------------------------------------------------
@@ -256,7 +269,13 @@ class Settings(BaseSettings):
         return value
 
     @field_validator(
-        "llm_api_key", "embedding_api_key", "stt_api_key", "tts_api_key", "smtp_password", mode="before"
+        "llm_api_key",
+        "embedding_api_key",
+        "reranker_api_key",
+        "stt_api_key",
+        "tts_api_key",
+        "smtp_password",
+        mode="before",
     )
     @classmethod
     def _empty_secret_is_none(cls, value: object) -> object:
@@ -289,6 +308,14 @@ class Settings(BaseSettings):
         if not self.stt_model.strip():
             self.stt_model = STT_DEFAULT_MODELS[self.stt_provider]
         self.stt_language = self.stt_language.strip().lower()
+        return self
+
+    @model_validator(mode="after")
+    def _apply_reranker_defaults(self) -> "Settings":
+        if self.reranker_provider is RerankerProviderName.NONE:
+            self.reranker_model = ""
+        elif not self.reranker_model.strip():
+            self.reranker_model = RERANKER_DEFAULT_MODELS[self.reranker_provider]
         return self
 
     @model_validator(mode="after")

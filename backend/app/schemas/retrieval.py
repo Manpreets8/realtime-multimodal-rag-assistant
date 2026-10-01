@@ -48,6 +48,10 @@ class SearchOptions(BaseModel):
     alpha: float | None = Field(
         default=None, ge=0.0, le=1.0, description="Weighted fusion: weight of similarity"
     )
+    rerank: bool = Field(
+        default=False,
+        description="Re-score the top RERANK_CANDIDATES with the configured reranker, as answers do",
+    )
 
 
 class SearchParameters(BaseModel):
@@ -59,6 +63,7 @@ class SearchParameters(BaseModel):
     fusion: FusionMethod
     alpha: float
     dedup_threshold: float | None
+    rerank: bool = False
 
 
 class SearchRequest(BaseModel):
@@ -98,6 +103,9 @@ class SearchHit(BaseModel):
     keyword_score: float | None
     vector_rank: int | None
     keyword_rank: int | None
+    rerank_score: float | None = Field(
+        default=None, description="Reranker relevance score; only when reranking was requested and succeeded"
+    )
 
 
 class SearchResponse(BaseModel):
@@ -111,4 +119,5 @@ class SearchResponse(BaseModel):
     filter_documents: int | None = Field(default=None, description="Documents matching the filters, if any")
     similarity_threshold: float
     parameters: SearchParameters | None = None
+    reranker: str | None = Field(default=None, description="Model that reranked the results, if any")
     timings_ms: dict[str, float]

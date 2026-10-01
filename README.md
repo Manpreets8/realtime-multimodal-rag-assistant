@@ -6,7 +6,7 @@ Mindora AI is a real-time multimodal RAG assistant. Ask questions about your own
 
 Built as a full-stack, production-minded application: FastAPI and PostgreSQL/pgvector behind a React app, a Redis-backed worker for document processing, local models for embeddings, reranking, speech-to-text and text-to-speech, Claude for answers and image understanding, an evaluation harness, and a Docker setup that deploys with HTTPS.
 
-> **Status.** The original 17 build phases are complete, and the Mindora AI upgrade is in progress (phases 1–8 done). Everything described here is implemented and tested: **544 backend tests** and **170 frontend tests** (backend coverage was 94% when last measured, before the upgrade). The Claude integration is tested against the real SDK with recorded HTTP responses, and has been checked end to end with a real Anthropic API key. The quality of Claude's answers has **not been measured yet**: the answer-quality evaluation is built but has not been run. Retrieval quality has been measured (see [Evaluation](#14-evaluation)).
+> **Status.** The original 17 build phases are complete, and the Mindora AI upgrade is in progress (phases 1–9 done). Everything described here is implemented and tested: **556 backend tests** and **173 frontend tests** (backend coverage was 94% when last measured, before the upgrade). The Claude integration is tested against the real SDK with recorded HTTP responses, and has been checked end to end with a real Anthropic API key. The quality of Claude's answers has **not been measured yet**: the answer-quality evaluation is built but has not been run. Retrieval quality has been measured (see [Evaluation](#14-evaluation)).
 
 **Contents:**
 1. [Overview](#1-project-overview)
@@ -51,7 +51,7 @@ What makes it more than a demo:
 | **Knowledge bases** | Any number per user, each with its own documents and embeddings; a chat answers only from the one selected (tested end to end). Create, rename, delete, search by name or description, sort by activity, name or age, with per-base statistics (documents, passages, storage, chats). Upload PDF, DOCX, TXT and MD (validated by content, 25 MB). Download, re-process, live ingestion progress |
 | **Ingestion** | Validation, text and metadata extraction (title, author, date, word, section and table counts) with page and section tracking, cleaning, structure-aware chunking, local embeddings (or Voyage AI), indexed in pgvector. Runs in a separate worker process via Redis, with a live step indicator (extracting → chunking → embedding → indexing), per-stage timings, and failure codes that say whether Retry can help |
 | **Document insights** | On request (or automatically): short, detailed and technical summaries, key points, topics, keywords and named entities, generated in the background by the LLM with schema-constrained JSON. Keywords and entities not found in the document are removed; very long documents are analysed in parts and merged, with the coverage shown |
-| **Retrieval** | Metadata filters (documents, file types, dates), then hybrid search: pgvector HNSW plus PostgreSQL full text, fused with reciprocal rank fusion (weighted fusion selectable, measured worse), near-duplicate removal, cross-encoder reranking and context selection. A search tab shows scores, filters and timings, with advanced settings to try other candidates, thresholds and fusion |
+| **Retrieval** | Metadata filters (documents, file types, dates), then hybrid search: pgvector HNSW plus PostgreSQL full text, fused with reciprocal rank fusion (weighted fusion selectable, measured worse), near-duplicate removal, reranking (local cross-encoder or Voyage API) and context selection. A search tab shows scores, filters and timings, with advanced settings to try other candidates, thresholds, fusion and reranking |
 | **Answers** | Claude, grounded in the retrieved passages, with native citations validated against the sources. Follow-up questions are rewritten using the conversation. Every answer shows how it was found, stage by stage. A general-chat mode works without documents |
 | **Citations** | Inline markers after the supported text. A source viewer highlights the quote in its passage; PDFs open at the cited page |
 | **Chat** | Saved conversations with history. Streaming over a WebSocket with live stages ("Searching…", "Writing…") and Stop. Falls back to HTTP if WebSockets are blocked |
@@ -117,7 +117,7 @@ backend/
     workers/        Redis job queue, ingestion worker, maintenance
     evaluation/     evaluation dataset, metrics, LLM judge, runner, report
   alembic/          database migrations
-  tests/            544 tests (unit, integration against real PostgreSQL/Redis, real-model tests)
+  tests/            556 tests (unit, integration against real PostgreSQL/Redis, real-model tests)
   Dockerfile
 frontend/
   src/
@@ -159,7 +159,7 @@ All settings live in `.env` (template: [.env.example](.env.example)). They are v
 | `DATABASE_URL`, `REDIS_URL` | local ports 5433 / 6380 | Set automatically inside Docker |
 | `CORS_ORIGINS` | `http://localhost:5173` | Allowed browser origins (also checked by the WebSocket) |
 | `EMBEDDING_PROVIDER` | `local` | `local` (fastembed) or `voyage` (`EMBEDDING_API_KEY`) |
-| `RERANKER_PROVIDER` | `local` | `local` cross-encoder or `none` |
+| `RERANKER_PROVIDER` | `local` | `local` cross-encoder, `voyage` (hosted, needs `RERANKER_API_KEY`) or `none` |
 | `TOP_K` / `RERANK_CANDIDATES` / `RERANK_TOP_K` | 20 / 20 / 5 | Candidates per retriever, reranked, and passed to Claude |
 | `SIMILARITY_THRESHOLD` | `0.5` | Minimum cosine similarity for vector-only hits (measured for bge-small) |
 | `CHUNK_SIZE` / `CHUNK_OVERLAP` | 1000 / 150 | Characters per chunk |
@@ -272,7 +272,7 @@ flowchart LR
 
 1. **Ingestion.** Text is extracted with page numbers (PDF) or heading paths (DOCX and Markdown), cleaned (Unicode normalisation, such as PDF ligatures like "ﬁ" becoming "fi"; invisible characters removed; words hyphenated across lines re-joined; whitespace collapsed). DOCX tables are included, and split into chunks that never cross a page or section, so every citation points to one location. The chunks are embedded and stored.
 2. **Retrieval.** Vector search (HNSW, with iterative scans so ownership filtering never starves results) and PostgreSQL full-text search each return candidates, fused with reciprocal rank fusion. Vector-only hits must reach a cosine similarity of 0.5. That threshold was measured: off-topic questions scored ≤ 0.43, relevant ones ≥ 0.61. Exact terms such as error codes survive through the keyword side.
-3. **Reranking.** A local cross-encoder rescores the 20 candidates and keeps the 5 best. If the reranker fails, the retrieval order is used.
+3. **Reranking.** A reranker (a local cross-encoder by default, or Voyage's hosted API) rescores the 20 candidates and keeps the 5 best. If the reranker fails, the retrieval order is used and no score is shown.
 4. **Answering.** The 5 passages are sent to Claude as `document` blocks with citations enabled. A strict grounding prompt applies, and follow-up questions are first rewritten into standalone search queries. If nothing relevant was retrieved, the answer is "not found" and **Claude isn't called**. If Claude answers without citing anything, the answer is labelled as not found in the documents.
 5. **Citations.** Claude's citation spans map to the passages. Each quote is located in the stored text (never guessed) for highlighting, and a snapshot of every source is saved with the message, so old answers still show their sources after documents change.
 

@@ -45,7 +45,11 @@ export function AnswerTrace({ message }: { message: ChatMessage }) {
   })
   steps.push({
     label: 'Reranking',
-    detail: stats.reranked ? 'Reordered by the cross-encoder' : 'Kept the retrieval order (reranker off or unavailable)',
+    detail: !stats.reranked
+      ? 'Kept the retrieval order (reranker off or unavailable)'
+      : stats.reranker
+        ? `${stats.rerank_candidates ? pluralize(stats.rerank_candidates, 'passage') : 'Passages'} scored by ${stats.reranker}`
+        : 'Reordered by the reranker',
     time: ms(timings.rerank),
   })
   if (stats.context_passages !== undefined) {

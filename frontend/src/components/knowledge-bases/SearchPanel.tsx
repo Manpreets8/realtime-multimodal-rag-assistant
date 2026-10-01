@@ -31,6 +31,7 @@ const TIMING_LABELS: Record<string, string> = {
   vector_search: 'Vector',
   keyword_search: 'Keyword',
   fusion: 'Fusion',
+  rerank: 'Rerank',
   fetch: 'Fetch',
   total: 'Total',
 }
@@ -70,9 +71,10 @@ interface AdvancedSettings {
   threshold: string
   fusion: '' | FusionMethod
   alpha: number
+  rerank: boolean
 }
 
-const NO_OVERRIDES: AdvancedSettings = { candidates: '', threshold: '', fusion: '', alpha: 0.5 }
+const NO_OVERRIDES: AdvancedSettings = { candidates: '', threshold: '', fusion: '', alpha: 0.5, rerank: false }
 
 /** Overrides to send (only those that apply to the mode), or undefined when none are set. */
 function toSearchOptions(settings: AdvancedSettings, mode: SearchMode): SearchOptions | undefined {
@@ -83,6 +85,7 @@ function toSearchOptions(settings: AdvancedSettings, mode: SearchMode): SearchOp
     options.fusion = settings.fusion
     if (settings.fusion === 'weighted') options.alpha = settings.alpha
   }
+  if (settings.rerank) options.rerank = true
   return Object.keys(options).length ? options : undefined
 }
 
@@ -183,6 +186,20 @@ function AdvancedSearchSettings({
           />
         </div>
       )}
+      <label className="mt-3 flex items-start gap-2 text-xs">
+        <input
+          type="checkbox"
+          checked={settings.rerank}
+          onChange={(e) => onChange({ ...settings, rerank: e.target.checked })}
+          className="mt-0.5 accent-brand-600"
+        />
+        <span>
+          <span className="font-medium">Rerank results</span>
+          <span className="block text-slate-600 dark:text-slate-400">
+            Re-score the top candidates with the server&apos;s reranker, as chat answers do. Slower.
+          </span>
+        </span>
+      </label>
       {overridden && (
         <button
           type="button"
@@ -201,7 +218,19 @@ function location(hit: SearchHit): string {
   return parts.length ? parts.join(' · ') : `Chunk ${hit.chunk_index + 1}`
 }
 
-function ResultCard({ hit, rank, query, onView }: { hit: SearchHit; rank: number; query: string; onView: () => void }) {
+function ResultCard({
+  hit,
+  rank,
+  query,
+  reranker,
+  onView,
+}: {
+  hit: SearchHit
+  rank: number
+  query: string
+  reranker: string | null
+  onView: () => void
+}) {
   return (
     <li className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -213,6 +242,14 @@ function ResultCard({ hit, rank, query, onView }: { hit: SearchHit; rank: number
           <p className="text-xs text-slate-500 dark:text-slate-400">{location(hit)}</p>
         </div>
         <div className="flex flex-wrap gap-1.5 text-xs" aria-label="Scores">
+          {reranker && hit.rerank_score !== null && hit.rerank_score !== undefined && (
+            <span
+              className="rounded-full bg-violet-50 px-2 py-0.5 font-medium text-violet-800 dark:bg-violet-500/15 dark:text-violet-200"
+              title={`Relevance score from ${reranker} (model-specific scale)`}
+            >
+              Rerank {hit.rerank_score.toFixed(2)}
+            </span>
+          )}
           {hit.similarity !== null && (
             <span className="rounded-full bg-brand-50 px-2 py-0.5 font-medium text-brand-700 dark:bg-brand-500/15 dark:text-brand-100" title="Cosine similarity">
               Similarity {hit.similarity.toFixed(2)}
@@ -374,6 +411,7 @@ export function SearchPanel({ knowledgeBaseId, hasIndexedDocuments }: { knowledg
                   hit={hit}
                   rank={index + 1}
                   query={response.query}
+                  reranker={response.reranker ?? null}
                   onView={() =>
                     setViewing({
                       chunkId: hit.chunk_id,
@@ -409,6 +447,13 @@ export function SearchPanel({ knowledgeBaseId, hasIndexedDocuments }: { knowledg
                 ` · ${FUSION_LABELS[response.parameters.fusion]}${
                   response.parameters.fusion === 'weighted' ? ` (semantic weight ${response.parameters.alpha})` : ''
                 }`}
+              {response.reranker && ` · reranked by ${response.reranker}`}
+            </p>
+          )}
+          {response.parameters?.rerank && !response.reranker && response.results.length > 0 && (
+            <p className="text-xs text-amber-800 dark:text-amber-300" data-testid="rerank-unavailable">
+              Not reranked: the reranker is turned off or unavailable, so results keep the retrieval order and have no
+              rerank scores.
             </p>
           )}
         </section>

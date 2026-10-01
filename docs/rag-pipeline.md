@@ -100,7 +100,7 @@ question
  ─► semantic search  ─┐
  ─► keyword search   ─┴─► RRF fusion ─► similarity threshold (vector-only hits)
  ─► deduplication          near-duplicate passages removed (3-word shingles, Jaccard ≥ DEDUP_THRESHOLD)
- ─► reranking              cross-encoder scores every candidate
+ ─► reranking              the configured reranker (local cross-encoder or hosted API) scores every candidate
  ─► context selection      RERANK_MIN_SCORE (off by default), RERANK_TOP_K, CONTEXT_MAX_CHARS
  ─► prompt construction    one citable source block per passage
  ─► LLM ─► answer
@@ -167,6 +167,16 @@ question ─► hybrid retrieval (RERANK_CANDIDATES=20) ─► cross-encoder rer
 - The response includes the answer text, cited sources with quotes and the answer character ranges they support, every source given to the model, token usage, and timings for retrieval, reranking and the LLM.
 
 **Reranking.** `Xenova/ms-marco-MiniLM-L-6-v2` via fastembed (80 MB, Apache-2.0, no key), chosen by measurement out of four candidates. On our test questions it put the correct passage first 9/9 and fixed the paraphrase near-tie the embedding model got wrong ("vacation days" vs a travel text that only shares "days"). Latency is about 10 ms per candidate on CPU (median 75 ms per question on the sample knowledge base). On the clean sample handbook, retrieval alone was already 9/9, so the measured benefit there is "no regression"; the gain shows on harder, shorter chunks. Rerank scores order results but **do not filter** them: unanswerable-but-on-topic questions scored higher than some relevant passages. If the reranker fails, the pipeline falls back to retrieval order. Set `RERANKER_PROVIDER=none` to disable it.
+
+**Reranking providers.** Rerankers implement one `Reranker` protocol (`rerank(query, chunks, top_k)` returning passages with scores), built by `build_reranker()` from `RERANKER_PROVIDER`:
+
+| Provider | Model (default) | Score | Notes |
+|---|---|---|---|
+| `local` | `Xenova/ms-marco-MiniLM-L-6-v2` | raw logit, unbounded | runs on CPU, no key; measured on the evaluation set |
+| `voyage` | `rerank-2.5` | 0..1 relevance | Voyage AI API, `RERANKER_API_KEY`; tested against recorded API responses, **not yet measured on the evaluation set** |
+| `none` | | none | keeps the retrieval order |
+
+Scores are the model's own and are never rescaled or invented: if reranking is off or fails (after retries for 429/5xx), passages keep the retrieval order and have **no** score, and the answer trace says "Kept the retrieval order". Each answer records which model scored it (`reranker`) and how many passages it scored (`rerank_candidates`). Because the scales differ, a `RERANK_MIN_SCORE` chosen for one model is meaningless for another. The Search tab's **Advanced settings → Rerank results** runs the same reranker over a search, so its scores can be inspected per passage.
 
 **Claude client** (`app/llm/claude.py`):
 - The official `anthropic` async SDK with streaming (`messages.stream()` + `get_final_message()`); `MODEL_NAME` defaults to `claude-opus-5`.

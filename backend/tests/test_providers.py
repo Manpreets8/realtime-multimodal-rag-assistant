@@ -196,6 +196,17 @@ def test_catalog_describes_every_capability_from_configuration() -> None:
     assert catalog["text_to_speech"].model == "tts-1/alloy"
 
 
+def test_catalog_reports_hosted_reranking_and_its_key() -> None:
+    def reranking(**overrides):
+        settings = Settings(_env_file=None, reranker_provider="voyage", **overrides)
+        return next(info for info in describe_providers(settings) if info.capability == "reranking")
+
+    without_key = reranking()
+    assert (without_key.provider, without_key.model, without_key.runs) == ("voyage", "rerank-2.5", "api")
+    assert without_key.configured is False
+    assert reranking(reranker_api_key="k").configured is True
+
+
 async def test_providers_endpoint_requires_sign_in_and_never_returns_secrets(
     client: AsyncClient, register_user: RegisterFn, monkeypatch: pytest.MonkeyPatch
 ) -> None:

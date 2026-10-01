@@ -16,7 +16,7 @@ from app.models import Document
 from app.rag import reranking
 from app.rag.context import deduplicate, select_context
 from app.rag.pipeline import check_citations, map_citations
-from app.rag.reranking import RankedChunk
+from app.rag.reranking import RankedChunk, RerankError
 from app.rag.retrieval import RetrievedChunk
 from app.services.ingestion_service import process_document
 from tests.conftest import RegisterFn, bearer
@@ -235,6 +235,8 @@ async def test_answers_record_every_stage_and_validate_citations(
     assert stats["context_passages"] == len(body["sources"]) == 1
     assert stats["context_chars"] == len(body["sources"][0]["content"])
     assert stats["citation_check"] == {"cited_sources": 1, "quotes": 1, "verified_quotes": 1, "rejected": 0}
+    assert (stats["reranked"], stats["reranker"]) == (True, "keyword-reranker")
+    assert stats["rerank_candidates"] >= 2
 
 
 async def test_nothing_above_the_threshold_means_not_found_without_the_model(
@@ -253,6 +255,54 @@ async def test_nothing_above_the_threshold_means_not_found_without_the_model(
 
     assert body["answer_type"] == "not_found" and llm.calls == []
     assert body["retrieval"]["context_passages"] == 0 and body["retrieval"]["below_rerank_threshold"] >= 2
+    # Reranking ran even though nothing passed: the trace must say so.
+    assert (body["retrieval"]["reranked"], body["retrieval"]["reranker"]) == (True, "keyword-reranker")
+
+
+async def test_search_can_rerank_and_reports_real_scores_only(
+    client: AsyncClient, alice: dict, library: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    query = {"query": "How many annual leave days?", "knowledge_base_ids": [library["kb"]]}
+
+    plain = (await client.post(f"{API}/retrieval/search", json=query, headers=alice)).json()
+    monkeypatch.setattr(reranking, "get_reranker", KeywordReranker)
+    reranked = (
+        await client.post(
+            f"{API}/retrieval/search", json={**query, "options": {"rerank": True}}, headers=alice
+        )
+    ).json()
+
+    assert plain["reranker"] is None and all(hit["rerank_score"] is None for hit in plain["results"])
+    assert plain["parameters"]["rerank"] is False and "rerank" not in plain["timings_ms"]
+    assert reranked["reranker"] == "keyword-reranker" and reranked["parameters"]["rerank"] is True
+    scores = [hit["rerank_score"] for hit in reranked["results"]]
+    assert scores == sorted(scores, reverse=True) and set(scores) <= {5.0, -12.0}
+    assert "leave" in reranked["results"][0]["content"].lower()
+    assert list(reranked["timings_ms"])[-2:] == ["rerank", "total"]
+
+
+async def test_search_reranker_failure_keeps_retrieval_order_without_scores(
+    client: AsyncClient, alice: dict, library: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class BrokenReranker:
+        model_name = "broken"
+
+        async def rerank(self, query, chunks, top_k):
+            raise RerankError("down")
+
+    monkeypatch.setattr(reranking, "get_reranker", BrokenReranker)
+    query = {"query": "annual leave", "knowledge_base_ids": [library["kb"]]}
+
+    plain = (await client.post(f"{API}/retrieval/search", json=query, headers=alice)).json()
+    body = (
+        await client.post(
+            f"{API}/retrieval/search", json={**query, "options": {"rerank": True}}, headers=alice
+        )
+    ).json()
+
+    assert body["reranker"] is None
+    assert all(hit["rerank_score"] is None for hit in body["results"])
+    assert [h["chunk_id"] for h in body["results"]] == [h["chunk_id"] for h in plain["results"]]
 
 
 async def test_chat_filters_apply_to_the_turn_and_stats_are_saved(

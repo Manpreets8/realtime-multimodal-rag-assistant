@@ -239,6 +239,47 @@ describe('Advanced search settings', () => {
     expect(screen.queryByRole('button', { name: 'Reset to server settings' })).not.toBeInTheDocument()
   })
 
+  it('reranks on request and shows the reranker’s own scores, labelled with the model', async () => {
+    const reranked: SearchResponse = {
+      ...RESPONSE,
+      reranker: 'rerank-2.5',
+      parameters: { ...PARAMETERS, fusion: 'rrf', rerank: true },
+      results: [
+        { ...RESPONSE.results[1], rerank_score: 0.91 },
+        { ...RESPONSE.results[0], rerank_score: 0.34 },
+      ],
+      timings_ms: { ...RESPONSE.timings_ms, rerank: 412 },
+    }
+    const fetchSpy = backend(() => json(reranked))
+    renderSignedIn('/knowledge-bases/kb-1?tab=search')
+
+    await userEvent.type(await screen.findByLabelText('Search this knowledge base'), 'carry over')
+    await userEvent.click(screen.getByText('Advanced settings'))
+    await userEvent.click(screen.getByRole('checkbox', { name: /Rerank results/ }))
+    await userEvent.click(screen.getByRole('button', { name: 'Search' }))
+
+    const [first, second] = within(await screen.findByRole('list')).getAllByRole('listitem')
+    expect(within(first).getByText('Rerank 0.91')).toHaveAttribute('title', 'Relevance score from rerank-2.5 (model-specific scale)')
+    expect(within(second).getByText('Rerank 0.34')).toBeInTheDocument()
+    expect(screen.getByTestId('search-parameters')).toHaveTextContent('reranked by rerank-2.5')
+    expect(screen.getByTestId('search-diagnostics')).toHaveTextContent('Rerank 412 ms')
+    const [, init] = fetchSpy.mock.calls.find(([url]) => String(url).endsWith('/retrieval/search'))!
+    expect(JSON.parse(String(init!.body)).options).toEqual({ rerank: true })
+  })
+
+  it('says so when reranking was requested but did not happen, and shows no scores', async () => {
+    backend(() => json({ ...RESPONSE, reranker: null, parameters: { ...PARAMETERS, rerank: true } }))
+    renderSignedIn('/knowledge-bases/kb-1?tab=search')
+
+    await userEvent.type(await screen.findByLabelText('Search this knowledge base'), 'leave')
+    await userEvent.click(screen.getByText('Advanced settings'))
+    await userEvent.click(screen.getByRole('checkbox', { name: /Rerank results/ }))
+    await userEvent.click(screen.getByRole('button', { name: 'Search' }))
+
+    expect(await screen.findByTestId('rerank-unavailable')).toHaveTextContent('Not reranked')
+    expect(screen.queryByText(/^Rerank \d/)).not.toBeInTheDocument()
+  })
+
   it('blocks searching with out-of-range values', async () => {
     const fetchSpy = backend(() => json(RESPONSE))
     renderSignedIn('/knowledge-bases/kb-1?tab=search')

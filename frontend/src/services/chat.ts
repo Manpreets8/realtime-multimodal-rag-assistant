@@ -122,6 +122,9 @@ export interface PipelineStats {
   duplicates_removed?: number
   filter_documents?: number | null
   reranked?: boolean
+  /** Model that scored the passages (absent on answers saved before it was recorded). */
+  reranker?: string | null
+  rerank_candidates?: number | null
   below_rerank_threshold?: number
   over_budget?: number
   context_passages?: number

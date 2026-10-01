@@ -133,6 +133,7 @@ class RagAnswer:
     output_tokens: int = 0
     truncated: bool = False
     reranked: bool = False
+    reranker: str | None = None  # model that scored the passages (None: retrieval order kept)
     retrieval: RetrievalResult | None = None
     context: ContextSelection | None = None
     citation_check: CitationCheck | None = None
@@ -260,6 +261,7 @@ async def answer_question(
     timings = {"retrieval": _ms(stage)}
 
     context: ContextSelection | None = None
+    reranked = False
     if retrieval.chunks:
         stage = time.perf_counter()
         if events:
@@ -297,6 +299,8 @@ async def answer_question(
             answer_type=AnswerType.NOT_FOUND,
             sources=[],
             citations=[],
+            reranked=reranked,
+            reranker=reranker.model_name if reranked else None,
             retrieval=retrieval,
             context=context,
             timings_ms=timings,
@@ -352,6 +356,7 @@ async def answer_question(
         output_tokens=response.output_tokens,
         truncated=response.truncated,
         reranked=reranked,
+        reranker=reranker.model_name if reranked else None,
         retrieval=retrieval,
         context=context,
         citation_check=citation_check,
@@ -370,6 +375,8 @@ def pipeline_stats(result: RagAnswer) -> dict[str, Any] | None:
         "duplicates_removed": result.retrieval.duplicates_removed,
         "filter_documents": result.retrieval.filter_documents,
         "reranked": result.reranked,
+        "reranker": result.reranker,
+        "rerank_candidates": len(result.retrieval.chunks),
     }
     if result.context is not None:
         stats.update(

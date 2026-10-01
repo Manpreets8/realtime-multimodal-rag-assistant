@@ -25,6 +25,8 @@ const ANSWER: ChatMessage = {
     duplicates_removed: 1,
     filter_documents: 2,
     reranked: true,
+    reranker: 'rerank-2.5',
+    rerank_candidates: 18,
     below_rerank_threshold: 0,
     over_budget: 0,
     context_passages: 5,
@@ -43,6 +45,17 @@ async function open(message: ChatMessage) {
 }
 
 describe('AnswerTrace', () => {
+  it('describes reranking honestly for older answers and when the reranker was off', async () => {
+    const older = { ...ANSWER.retrieval!, reranker: undefined, rerank_candidates: undefined }
+    const { unmount } = render(<AnswerTrace message={{ ...ANSWER, retrieval: older }} />)
+    await userEvent.click(screen.getByText('How this answer was found'))
+    expect(screen.getByRole('list')).toHaveTextContent('Reordered by the reranker')
+    unmount()
+
+    await open({ ...ANSWER, retrieval: { ...ANSWER.retrieval!, reranked: false, reranker: null } })
+    expect(screen.getByRole('list')).toHaveTextContent('Kept the retrieval order (reranker off or unavailable)')
+  })
+
   it('walks through every pipeline stage with what it did', async () => {
     const steps = within(await open(ANSWER)).getAllByRole('listitem').map((item) => item.textContent)
 
@@ -50,7 +63,7 @@ describe('AnswerTrace', () => {
       expect.stringContaining('Rewritten for search: “annual leave days employees”'),
       expect.stringContaining('2 documents matched the filters'),
       expect.stringMatching(/20 semantic \+ 6 keyword candidates, fused; 3 below the similarity threshold, 1 near-duplicate removed/),
-      expect.stringContaining('Reordered by the cross-encoder'),
+      expect.stringContaining('18 passages scored by rerank-2.5'),
       expect.stringContaining('5 passages sent (4,210 characters)'),
       expect.stringContaining('claude-opus-5 · 1,200 in / 40 out tokens'),
       expect.stringContaining('3 of 3 quotes found word for word in the sources'),

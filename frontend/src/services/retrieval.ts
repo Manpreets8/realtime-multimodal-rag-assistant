@@ -17,6 +17,8 @@ export interface SearchHit {
   keyword_score: number | null
   vector_rank: number | null
   keyword_rank: number | null
+  /** The reranker's own score; only present when reranking was requested and succeeded. */
+  rerank_score?: number | null
 }
 
 export interface SearchResponse {
@@ -32,6 +34,8 @@ export interface SearchResponse {
   similarity_threshold: number
   /** The parameters the search actually used (server settings plus any overrides). */
   parameters?: SearchParameters | null
+  /** Model that reranked the results (null: not requested, reranker off, or it failed). */
+  reranker?: string | null
   timings_ms: Record<string, number>
 }
 
@@ -50,6 +54,7 @@ export interface SearchOptions {
   similarity_threshold?: number // 0-1
   fusion?: FusionMethod
   alpha?: number // weighted fusion: weight of semantic similarity, 0-1
+  rerank?: boolean // re-score with the server's reranker, as chat answers do
 }
 
 export interface SearchParameters {
@@ -59,6 +64,7 @@ export interface SearchParameters {
   fusion: FusionMethod
   alpha: number
   dedup_threshold: number | null
+  rerank?: boolean
 }
 
 /** Restrict retrieval to some documents; empty fields don't filter. */

@@ -11,7 +11,7 @@ Each AI capability is used through an interface (a Python `Protocol`). The imple
 | LLM | `LLMProvider` ([base.py](../backend/app/llm/base.py)) | `anthropic` (`LLM_PROVIDER`) | [llm/factory.py](../backend/app/llm/factory.py) |
 | Vision | `LLMProvider` (image parts) | the LLM provider, when `supports_images` | [llm/factory.py](../backend/app/llm/factory.py) |
 | Embeddings | `EmbeddingProvider` | `local` (fastembed), `voyage` (`EMBEDDING_PROVIDER`) | [rag/embeddings.py](../backend/app/rag/embeddings.py) |
-| Reranking | `Reranker` | `local` (cross-encoder), `none` (`RERANKER_PROVIDER`) | [rag/reranking.py](../backend/app/rag/reranking.py) |
+| Reranking | `Reranker` | `local` (cross-encoder), `voyage` (hosted API), `none` (`RERANKER_PROVIDER`) | [rag/reranking.py](../backend/app/rag/reranking.py) |
 | Speech-to-text | `SpeechProvider` | `local` (faster-whisper), `openai` (`STT_PROVIDER`) | [multimodal/speech.py](../backend/app/multimodal/speech.py) |
 | Text-to-speech | `TTSProvider` | `local` (Piper), `openai` (`TTS_PROVIDER`) | [multimodal/tts.py](../backend/app/multimodal/tts.py) |
 

@@ -81,6 +81,10 @@ class RetrievalStats(BaseModel):
     duplicates_removed: int = 0
     filter_documents: int | None = Field(default=None, description="Documents matching the filters, if any")
     reranked: bool
+    reranker: str | None = Field(
+        default=None, description="Model that scored the passages (None: retrieval order)"
+    )
+    rerank_candidates: int | None = Field(default=None, description="Passages given to the reranker")
     below_rerank_threshold: int = 0
     over_budget: int = 0
     context_passages: int | None = None

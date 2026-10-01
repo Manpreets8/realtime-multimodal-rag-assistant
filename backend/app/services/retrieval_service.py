@@ -1,3 +1,4 @@
+import time
 import uuid
 
 from sqlalchemy import select
@@ -6,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.core.errors import NotFoundError
 from app.models import KnowledgeBase
-from app.rag import embeddings
+from app.rag import embeddings, reranking
 from app.rag.retrieval import FusionMethod, RetrievalFilters, RetrievalResult, SearchMode, retrieve
 from app.schemas.retrieval import SearchHit, SearchOptions, SearchParameters, SearchRequest, SearchResponse
 
@@ -51,6 +52,7 @@ async def search(
         fusion=options.fusion or FusionMethod(settings.retrieval_fusion),
         alpha=options.alpha if options.alpha is not None else settings.hybrid_alpha,
         dedup_threshold=settings.dedup_threshold,
+        rerank=options.rerank,
     )
     result = await retrieve(
         db,
@@ -59,7 +61,8 @@ async def search(
         knowledge_base_ids=knowledge_base_ids,
         query=query,
         candidates=parameters.candidates,
-        limit=parameters.limit,
+        # Reranking scores a larger pool (as answers do) and keeps the best `limit`.
+        limit=max(settings.rerank_candidates, parameters.limit) if parameters.rerank else parameters.limit,
         similarity_threshold=parameters.similarity_threshold,
         mode=mode,
         filters=filters,
@@ -81,10 +84,30 @@ async def search_request(db: AsyncSession, user_id: uuid.UUID, request: SearchRe
         filters=request.filters.to_filters() if request.filters else None,
         options=request.options,
     )
+    hits = [SearchHit.model_validate(chunk) for chunk in result.chunks]
+    reranker_name: str | None = None
+    timings = dict(result.timings_ms)
+    if parameters.rerank and result.chunks:
+        started = time.perf_counter()
+        reranker = reranking.get_reranker()
+        ranked, applied = await reranking.rerank_or_fallback(
+            reranker, result.query, result.chunks, parameters.limit
+        )
+        timings["rerank"] = round((time.perf_counter() - started) * 1000, 2)
+        # Re-inserted so "total" stays last, after the stage it now includes.
+        timings["total"] = round(timings.pop("total", 0.0) + timings["rerank"], 2)
+        reranker_name = reranker.model_name if applied else None
+        hits = [
+            SearchHit.model_validate(item.chunk).model_copy(update={"rerank_score": item.rerank_score})
+            for item in ranked
+        ]
+    else:
+        hits = hits[: parameters.limit]
     return SearchResponse(
         query=result.query,
         mode=result.mode,
-        results=[SearchHit.model_validate(chunk) for chunk in result.chunks],
+        results=hits,
+        reranker=reranker_name,
         vector_candidates=result.vector_candidates,
         keyword_candidates=result.keyword_candidates,
         filtered_out=result.filtered_out,
@@ -92,5 +115,5 @@ async def search_request(db: AsyncSession, user_id: uuid.UUID, request: SearchRe
         filter_documents=result.filter_documents,
         similarity_threshold=parameters.similarity_threshold,
         parameters=parameters,
-        timings_ms=result.timings_ms,
+        timings_ms=timings,
     )

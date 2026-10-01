@@ -59,6 +59,7 @@ def describe_providers(settings: Settings) -> list[ProviderInfo]:
 
     embeddings_local = settings.embedding_provider is EmbeddingProviderName.LOCAL
     reranking_on = settings.reranker_provider is not RerankerProviderName.NONE
+    reranking_local = settings.reranker_provider is RerankerProviderName.LOCAL
     stt_local = settings.stt_provider is SpeechProviderName.LOCAL
     tts_local = settings.tts_provider is TTSProviderName.LOCAL
 
@@ -81,9 +82,9 @@ def describe_providers(settings: Settings) -> list[ProviderInfo]:
         ProviderInfo(
             "reranking",
             settings.reranker_provider.value,
-            settings.reranker_model if reranking_on else "",
-            "local" if reranking_on else "off",
-            True,
+            settings.reranker_model,
+            "local" if reranking_local else "api" if reranking_on else "off",
+            not reranking_on or reranking_local or settings.reranker_api_key is not None,
         ),
         ProviderInfo(
             "speech_to_text",
