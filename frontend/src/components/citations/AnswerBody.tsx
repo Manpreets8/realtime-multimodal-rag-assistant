@@ -26,6 +26,8 @@ export interface AnswerBodyProps {
   usage?: { input_tokens: number; output_tokens: number } | null
   reranked?: boolean
   timingsMs?: Record<string, number> | null
+  /** The one-line model/timings summary; off where a fuller trace is shown (chat answers). */
+  hideDiagnostics?: boolean
 }
 
 const ANSWER_TYPES: Record<string, { label: string; className: string }> = {
@@ -65,7 +67,7 @@ function describeSource(source: AnswerBodySource | undefined): string {
 
 /** Answer text with inline citations, the cited-source list, the context given to the model and diagnostics. */
 export function AnswerBody(props: AnswerBodyProps) {
-  const { text, answerType, citations, sources, truncated, model, usage, reranked, timingsMs } = props
+  const { text, answerType, citations, sources, truncated, model, usage, reranked, timingsMs, hideDiagnostics } = props
   const [viewing, setViewing] = useState<ViewedSource | null>(null)
   const close = useCallback(() => setViewing(null), [])
   const type = answerType ? ANSWER_TYPES[answerType] : undefined
@@ -95,6 +97,7 @@ export function AnswerBody(props: AnswerBodyProps) {
       .filter(([name]) => timingsMs && name in timingsMs)
       .map(([name, label]) => `${label} ${Math.round(timingsMs![name])} ms`),
   ].filter(Boolean)
+  const showDiagnostics = !hideDiagnostics && diagnostics.length > 0
 
   return (
     <div className="space-y-3">
@@ -160,7 +163,7 @@ export function AnswerBody(props: AnswerBodyProps) {
         </details>
       )}
 
-      {diagnostics.length > 0 && (
+      {showDiagnostics && (
         <p className="text-xs text-slate-500 dark:text-slate-400" data-testid="answer-diagnostics">
           {diagnostics.join(' · ')}
         </p>

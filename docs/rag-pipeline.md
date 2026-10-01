@@ -88,6 +88,33 @@ POST /documents/{id}/insights ─► row: pending ─► job queue (kind=insight
 
 Each generation's model, number of LLM calls, input and output tokens, coverage and time are stored with the insights and shown under them, and every call is also logged as an `ai_call` record ([providers.md](providers.md)).
 
+## The full pipeline
+
+Every answer goes through the same stages; each one's counts and timings are stored with the answer and shown under it as **How this answer was found**.
+
+```
+question
+ ─► preprocessing          whitespace collapsed, length capped (normalize_query)
+ ─► query rewriting        only when useful: a follow-up in a conversation, or an attached image (conversation.py)
+ ─► metadata filters       optional: document IDs, file types, upload dates  ─► the allowed documents
+ ─► semantic search  ─┐
+ ─► keyword search   ─┴─► RRF fusion ─► similarity threshold (vector-only hits)
+ ─► deduplication          near-duplicate passages removed (3-word shingles, Jaccard ≥ DEDUP_THRESHOLD)
+ ─► reranking              cross-encoder scores every candidate
+ ─► context selection      RERANK_MIN_SCORE (off by default), RERANK_TOP_K, CONTEXT_MAX_CHARS
+ ─► prompt construction    one citable source block per passage
+ ─► LLM ─► answer
+ ─► citation validation    quotes checked word for word against their sources
+```
+
+| Stage | Where | Notes |
+|---|---|---|
+| **Metadata filters** | `retrieve(filters=...)`, `filters` on search, answer and chat requests | Resolved to the user's matching, indexed documents first, then applied inside both retrievers' SQL (so `TOP_K` candidates still come back). Other users' document IDs simply match nothing. The Search tab offers file-type filters; the API also takes document IDs and upload dates. |
+| **Deduplication** | [context.py](../backend/app/rag/context.py) | The same text in two documents (two versions of a policy, a copy) would fill several of the five context slots with one fact. Near-duplicates are removed before the top candidates are cut, keeping the better-ranked copy. Adjacent chunks of one document share only their overlap and are unaffected (tested). On the evaluation corpus, which has no duplicates, every retrieval metric is unchanged (measured); a real run with a copied document removed the copy. |
+| **Relevance threshold after reranking** | `select_context()` | Measured on the evaluation set: every threshold also removed relevant passages (even -10 drops recall@5 from 100% to 96.7%), so it is **off by default** and available as a trade-off. See [the experiment](../evaluation/results/experiment-rerank-threshold.md). |
+| **Context selection** | `select_context()` | After the threshold: the best `RERANK_TOP_K` passages within `CONTEXT_MAX_CHARS` (the first passage is always kept). The evaluation uses the same function, so it measures exactly what answers use. |
+| **Citation validation** | `check_citations()` in [pipeline.py](../backend/app/rag/pipeline.py) | Citations to a source that wasn't sent are dropped and counted. Every quote is looked up in its source; quotes not found word for word are kept but flagged (never given a guessed highlight position), and the trace shows "2 of 2 quotes found word for word". |
+
 ## Retrieval
 
 `POST /api/v1/retrieval/search` with body `{"query", "knowledge_base_ids", "mode": "hybrid" | "vector" | "keyword", "limit"}` returns the chunks the RAG pipeline will use as context. Each hit includes its document, page and section, cosine similarity, keyword rank and fused score, and the response includes per-stage timings. In the UI this is the **Search** tab of a knowledge base.

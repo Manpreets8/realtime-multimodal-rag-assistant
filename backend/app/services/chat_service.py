@@ -20,7 +20,7 @@ from app.llm.base import ImagePart
 from app.models import Citation, Conversation, ImageUpload, KnowledgeBase, Message, MessageRole
 from app.rag import embeddings, reranking
 from app.rag.conversation import HistoryMessage, rewrite_query, trim_history
-from app.rag.pipeline import AnswerEvents, AnswerType, RagAnswer, Stage, answer_question
+from app.rag.pipeline import AnswerEvents, AnswerType, RagAnswer, Stage, answer_question, pipeline_stats
 from app.rag.prompts import DEFAULT_IMAGE_QUESTION
 from app.schemas.chat import (
     ChatCitation,
@@ -357,6 +357,7 @@ async def send_message(
         retrieval_query=retrieval_query,
         images=image_blocks,
         events=events,
+        filters=request.filters.to_filters() if request.filters else None,
     )
 
     # Persist the question and its answer together.
@@ -377,15 +378,8 @@ async def send_message(
         created_at=received_at,
         images=images,  # attaches the uploads (sets images.message_id)
     )
-    retrieval_stats = None
-    if result.retrieval is not None:
-        retrieval_stats = {
-            "vector_candidates": result.retrieval.vector_candidates,
-            "keyword_candidates": result.retrieval.keyword_candidates,
-            "filtered_out": result.retrieval.filtered_out,
-            "reranked": result.reranked,
-            **rewrite_info,
-        }
+    stats = pipeline_stats(result)
+    retrieval_stats = {**stats, **rewrite_info} if stats is not None else None
     timings = dict(result.timings_ms)
     if "rewrite_ms" in rewrite_info:
         timings["rewrite"] = rewrite_info["rewrite_ms"]

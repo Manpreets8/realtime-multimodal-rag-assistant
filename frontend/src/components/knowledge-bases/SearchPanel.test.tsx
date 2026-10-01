@@ -171,4 +171,22 @@ describe('Search result viewer', () => {
     expect(await within(viewer).findByTestId('cited-chunk')).toHaveTextContent('Employees receive 18 days')
     expect(within(viewer).getByRole('button', { name: 'Open page 2' })).toBeInTheDocument()
   })
+
+  it('filters by file type and reports removed duplicates', async () => {
+    const fetchSpy = backend(() => json({ ...RESPONSE, duplicates_removed: 1, filter_documents: 3 }))
+    renderSignedIn('/knowledge-bases/kb-1?tab=search')
+
+    await userEvent.type(await screen.findByLabelText('Search this knowledge base'), 'annual leave days')
+    await userEvent.click(screen.getByRole('button', { name: 'PDF' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Markdown' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Markdown' })) // toggled off again
+    await userEvent.click(screen.getByRole('button', { name: 'Search' }))
+
+    const diagnostics = await screen.findByTestId('search-diagnostics')
+    expect(diagnostics).toHaveTextContent('1 near-duplicate removed')
+    expect(diagnostics).toHaveTextContent('3 documents matched the filters')
+    expect(screen.getByRole('button', { name: 'PDF' })).toHaveAttribute('aria-pressed', 'true')
+    const [, init] = fetchSpy.mock.calls.find(([url]) => String(url).endsWith('/retrieval/search'))!
+    expect(JSON.parse(String(init!.body)).filters).toEqual({ file_types: ['.pdf'] })
+  })
 })

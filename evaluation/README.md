@@ -122,6 +122,8 @@ What this shows:
 
    Without term frequency and length normalisation, rare but incidental words dominated, and "Am I allowed to work from home?" became a new miss. The change was reverted rather than tuned against 30 questions, which would overfit. Hybrid fusion already recovers the SEV2 case: with vector search in the mix, the right chunk ranks second.
 
+6. **A relevance threshold after reranking costs recall.** Withholding passages the cross-encoder scores below a cut-off ([results/experiment-rerank-threshold.md](results/experiment-rerank-threshold.md)) sends less context, but every value tried also withheld relevant passages: -10 sends about 40% fewer passages and drops recall@5 from 100% to 96.7%; -8 makes half the unanswerable questions retrieve nothing but leaves one answerable question with no evidence at all. `RERANK_MIN_SCORE` stays off by default. Near-duplicate removal (`DEDUP_THRESHOLD=0.9`, on by default) left every metric unchanged here, because this corpus has no duplicate passages.
+
 **Limits of these numbers.** With 30 answerable questions, one question moves a rate by 3.3 points. The corpus is small (37 chunks) and was written for this evaluation, so these figures show how the configurations compare and catch regressions. They are not an estimate of accuracy on real document collections. Add questions over your own documents to `dataset.json` for that.
 
 ### Answers, faithfulness and citations: not yet measured

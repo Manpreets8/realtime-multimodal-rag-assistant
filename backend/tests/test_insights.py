@@ -105,7 +105,8 @@ async def test_request_generate_and_read(
         300,
     )
     content = body["content"]
-    assert content["short_summary"] == "Rules for booking business travel." and content["language"] == "English"
+    assert content["short_summary"] == "Rules for booking business travel."
+    assert content["language"] == "English"
     assert content["key_points"] == [
         "Economy is the default",
         "Business class needs approval",

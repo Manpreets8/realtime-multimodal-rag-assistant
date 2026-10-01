@@ -6,7 +6,7 @@ Mindora AI is a real-time multimodal RAG assistant. Ask questions about your own
 
 Built as a full-stack, production-minded application: FastAPI and PostgreSQL/pgvector behind a React app, a Redis-backed worker for document processing, local models for embeddings, reranking, speech-to-text and text-to-speech, Claude for answers and image understanding, an evaluation harness, and a Docker setup that deploys with HTTPS.
 
-> **Status.** The original 17 build phases are complete, and the Mindora AI upgrade is in progress (phases 1–6 done). Everything described here is implemented and tested: **526 backend tests** and **163 frontend tests** (backend coverage was 94% when last measured, before the upgrade). The Claude integration is tested against the real SDK with recorded HTTP responses, and has been checked end to end with a real Anthropic API key. The quality of Claude's answers has **not been measured yet**: the answer-quality evaluation is built but has not been run. Retrieval quality has been measured (see [Evaluation](#14-evaluation)).
+> **Status.** The original 17 build phases are complete, and the Mindora AI upgrade is in progress (phases 1–7 done). Everything described here is implemented and tested: **537 backend tests** and **167 frontend tests** (backend coverage was 94% when last measured, before the upgrade). The Claude integration is tested against the real SDK with recorded HTTP responses, and has been checked end to end with a real Anthropic API key. The quality of Claude's answers has **not been measured yet**: the answer-quality evaluation is built but has not been run. Retrieval quality has been measured (see [Evaluation](#14-evaluation)).
 
 **Contents:**
 1. [Overview](#1-project-overview)
@@ -51,8 +51,8 @@ What makes it more than a demo:
 | **Knowledge bases** | Any number per user, each with its own documents and embeddings; a chat answers only from the one selected (tested end to end). Create, rename, delete, search by name or description, sort by activity, name or age, with per-base statistics (documents, passages, storage, chats). Upload PDF, DOCX, TXT and MD (validated by content, 25 MB). Download, re-process, live ingestion progress |
 | **Ingestion** | Validation, text and metadata extraction (title, author, date, word, section and table counts) with page and section tracking, cleaning, structure-aware chunking, local embeddings (or Voyage AI), indexed in pgvector. Runs in a separate worker process via Redis, with a live step indicator (extracting → chunking → embedding → indexing), per-stage timings, and failure codes that say whether Retry can help |
 | **Document insights** | On request (or automatically): short, detailed and technical summaries, key points, topics, keywords and named entities, generated in the background by the LLM with schema-constrained JSON. Keywords and entities not found in the document are removed; very long documents are analysed in parts and merged, with the coverage shown |
-| **Retrieval** | Hybrid search: pgvector HNSW plus PostgreSQL full text, fused with reciprocal rank fusion, then cross-encoder reranking. A search tab shows scores and timings |
-| **Answers** | Claude, grounded in the retrieved passages, with native citations. Follow-up questions are rewritten using the conversation. A general-chat mode works without documents |
+| **Retrieval** | Metadata filters (documents, file types, dates), then hybrid search: pgvector HNSW plus PostgreSQL full text, fused with reciprocal rank fusion, near-duplicate removal, cross-encoder reranking and context selection. A search tab shows scores, filters and timings |
+| **Answers** | Claude, grounded in the retrieved passages, with native citations validated against the sources. Follow-up questions are rewritten using the conversation. Every answer shows how it was found, stage by stage. A general-chat mode works without documents |
 | **Citations** | Inline markers after the supported text. A source viewer highlights the quote in its passage; PDFs open at the cited page |
 | **Chat** | Saved conversations with history. Streaming over a WebSocket with live stages ("Searching…", "Writing…") and Stop. Falls back to HTTP if WebSockets are blocked |
 | **Images** | Attach, paste or drop screenshots and photos. Answers from the image alone, or from the image combined with the knowledge base |
@@ -117,7 +117,7 @@ backend/
     workers/        Redis job queue, ingestion worker, maintenance
     evaluation/     evaluation dataset, metrics, LLM judge, runner, report
   alembic/          database migrations
-  tests/            526 tests (unit, integration against real PostgreSQL/Redis, real-model tests)
+  tests/            537 tests (unit, integration against real PostgreSQL/Redis, real-model tests)
   Dockerfile
 frontend/
   src/

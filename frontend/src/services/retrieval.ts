@@ -25,6 +25,9 @@ export interface SearchResponse {
   vector_candidates: number
   keyword_candidates: number
   filtered_out: number
+  duplicates_removed?: number
+  /** Documents matching the filters (null when no filters were sent). */
+  filter_documents?: number | null
   similarity_threshold: number
   timings_ms: Record<string, number>
 }
@@ -34,6 +37,15 @@ export interface SearchRequest {
   knowledge_base_ids: string[]
   mode?: SearchMode
   limit?: number
+  filters?: SearchFilters
+}
+
+/** Restrict retrieval to some documents; empty fields don't filter. */
+export interface SearchFilters {
+  document_ids?: string[]
+  file_types?: string[] // extensions, e.g. ".pdf"
+  uploaded_after?: string
+  uploaded_before?: string
 }
 
 export function search(request: SearchRequest): Promise<SearchResponse> {

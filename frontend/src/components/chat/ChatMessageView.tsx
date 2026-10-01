@@ -1,5 +1,6 @@
 import type { ChatMessage } from '../../services/chat'
 import { AnswerBody } from '../citations/AnswerBody'
+import { AnswerTrace } from './AnswerTrace'
 import { StoredImage } from './ImageThumbs'
 
 function AssistantAvatar() {
@@ -56,12 +57,14 @@ export function ChatMessageView({ message }: { message: ChatMessage }) {
         usage={message.usage}
         reranked={Boolean(message.retrieval?.reranked)}
         timingsMs={message.timings_ms}
+        hideDiagnostics={Boolean(message.retrieval)}
       />
       {message.retrieval_query && (
         <p className="mt-2 text-xs text-slate-500 dark:text-slate-400" title="Follow-up rewritten into a standalone search query">
           Searched for: “{message.retrieval_query}”
         </p>
       )}
+      <AnswerTrace message={message} />
     </AssistantShell>
   )
 }

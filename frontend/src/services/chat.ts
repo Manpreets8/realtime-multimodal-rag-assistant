@@ -46,7 +46,7 @@ export interface ChatMessage {
   usage: { input_tokens: number; output_tokens: number } | null
   truncated: boolean
   timings_ms: Record<string, number> | null
-  retrieval: { reranked?: boolean; rewritten?: boolean } & Record<string, unknown> | null
+  retrieval: PipelineStats | null
   citations: ChatCitation[]
   sources: ChatSource[]
 }
@@ -111,4 +111,21 @@ export function updateConversation(
 
 export function deleteConversation(id: string): Promise<null> {
   return apiRequest<null>(`/conversations/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
+/** What each RAG pipeline stage did for one answer (stored with the message). Fields added in
+ * later versions are optional: older messages don't have them. */
+export interface PipelineStats {
+  vector_candidates: number
+  keyword_candidates: number
+  filtered_out: number
+  duplicates_removed?: number
+  filter_documents?: number | null
+  reranked?: boolean
+  below_rerank_threshold?: number
+  over_budget?: number
+  context_passages?: number
+  context_chars?: number
+  citation_check?: { cited_sources: number; quotes: number; verified_quotes: number; rejected: number }
+  rewritten?: boolean
 }

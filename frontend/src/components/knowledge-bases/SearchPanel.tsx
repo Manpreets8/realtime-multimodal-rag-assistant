@@ -12,6 +12,13 @@ const MODES: { value: SearchMode; label: string; hint: string }[] = [
   { value: 'keyword', label: 'Keyword', hint: 'Postgres full-text search only' },
 ]
 
+const FILE_TYPES: { value: string; label: string }[] = [
+  { value: '.pdf', label: 'PDF' },
+  { value: '.docx', label: 'Word' },
+  { value: '.txt', label: 'Text' },
+  { value: '.md', label: 'Markdown' },
+]
+
 const TIMING_LABELS: Record<string, string> = {
   embedding: 'Embed query',
   vector_search: 'Vector',
@@ -92,6 +99,7 @@ function ResultCard({ hit, rank, query, onView }: { hit: SearchHit; rank: number
 export function SearchPanel({ knowledgeBaseId, hasIndexedDocuments }: { knowledgeBaseId: string; hasIndexedDocuments: boolean }) {
   const [query, setQuery] = useState('')
   const [mode, setMode] = useState<SearchMode>('hybrid')
+  const [fileTypes, setFileTypes] = useState<string[]>([])
   const [response, setResponse] = useState<SearchResponse | null>(null)
   const [error, setError] = useState<ApiError | null>(null)
   const [searching, setSearching] = useState(false)
@@ -104,7 +112,14 @@ export function SearchPanel({ knowledgeBaseId, hasIndexedDocuments }: { knowledg
     setSearching(true)
     setError(null)
     try {
-      setResponse(await search({ query: query.trim(), knowledge_base_ids: [knowledgeBaseId], mode }))
+      setResponse(
+        await search({
+          query: query.trim(),
+          knowledge_base_ids: [knowledgeBaseId],
+          mode,
+          filters: fileTypes.length ? { file_types: fileTypes } : undefined,
+        }),
+      )
     } catch (err) {
       setResponse(null)
       setError(err instanceof ApiError ? err : new ApiError(0, 'unknown_error', 'Search failed.', null))
@@ -157,6 +172,28 @@ export function SearchPanel({ knowledgeBaseId, hasIndexedDocuments }: { knowledg
             </label>
           ))}
         </fieldset>
+        <fieldset className="flex flex-wrap items-center gap-1.5">
+          <legend className="mr-1 float-left text-xs text-slate-600 dark:text-slate-400">File types</legend>
+          {FILE_TYPES.map((type) => {
+            const on = fileTypes.includes(type.value)
+            return (
+              <button
+                key={type.value}
+                type="button"
+                aria-pressed={on}
+                onClick={() => setFileTypes(on ? fileTypes.filter((t) => t !== type.value) : [...fileTypes, type.value])}
+                className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                  on
+                    ? 'border-brand-600 bg-brand-50 text-brand-700 dark:border-brand-400 dark:bg-brand-500/15 dark:text-brand-100'
+                    : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300'
+                }`}
+              >
+                {type.label}
+              </button>
+            )
+          })}
+          {fileTypes.length === 0 && <span className="text-xs text-slate-500 dark:text-slate-400">all</span>}
+        </fieldset>
       </form>
 
       {!hasIndexedDocuments && (
@@ -200,7 +237,12 @@ export function SearchPanel({ knowledgeBaseId, hasIndexedDocuments }: { knowledg
           )}
           <p className="text-xs text-slate-500 dark:text-slate-400" data-testid="search-diagnostics">
             {response.vector_candidates} semantic + {response.keyword_candidates} keyword candidates
-            {response.filtered_out > 0 && `, ${response.filtered_out} below threshold`} ·{' '}
+            {response.filtered_out > 0 && `, ${response.filtered_out} below threshold`}
+            {response.duplicates_removed ? `, ${response.duplicates_removed} near-duplicate${response.duplicates_removed === 1 ? '' : 's'} removed` : ''}
+            {response.filter_documents !== undefined && response.filter_documents !== null
+              ? `, ${response.filter_documents} document${response.filter_documents === 1 ? '' : 's'} matched the filters`
+              : ''}{' '}
+            ·{' '}
             {Object.entries(response.timings_ms)
               .filter(([name]) => name in TIMING_LABELS)
               .map(([name, ms]) => `${TIMING_LABELS[name]} ${ms.toFixed(ms < 10 ? 1 : 0)} ms`)

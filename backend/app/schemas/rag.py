@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.rag.pipeline import AnswerType
 from app.rag.retrieval import MAX_QUERY_LENGTH
-from app.schemas.retrieval import MAX_KNOWLEDGE_BASES_PER_SEARCH
+from app.schemas.retrieval import MAX_KNOWLEDGE_BASES_PER_SEARCH, SearchFilters
 
 
 class AnswerRequest(BaseModel):
@@ -14,6 +14,7 @@ class AnswerRequest(BaseModel):
         max_length=MAX_KNOWLEDGE_BASES_PER_SEARCH,
         description="Empty for a general (non-RAG) answer",
     )
+    filters: SearchFilters | None = None
 
     @field_validator("question")
     @classmethod
@@ -64,11 +65,27 @@ class Usage(BaseModel):
     output_tokens: int
 
 
+class CitationCheckOut(BaseModel):
+    cited_sources: int
+    quotes: int
+    verified_quotes: int = Field(description="Quotes found verbatim in their source")
+    rejected: int = Field(description="Citations to a source that wasn't sent (dropped)")
+
+
 class RetrievalStats(BaseModel):
+    """What each pipeline stage did for this answer."""
+
     vector_candidates: int
     keyword_candidates: int
-    filtered_out: int
+    filtered_out: int = Field(description="Dropped by the similarity threshold")
+    duplicates_removed: int = 0
+    filter_documents: int | None = Field(default=None, description="Documents matching the filters, if any")
     reranked: bool
+    below_rerank_threshold: int = 0
+    over_budget: int = 0
+    context_passages: int | None = None
+    context_chars: int | None = None
+    citation_check: CitationCheckOut | None = None
 
 
 class AnswerResponse(BaseModel):

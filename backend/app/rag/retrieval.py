@@ -1,8 +1,9 @@
 """Hybrid retrieval over indexed document chunks.
 
-    query -> normalise -> embed ─┬─> vector search (pgvector HNSW, cosine)  ─┐
-                                 └─> keyword search (Postgres full text)    ─┴─> RRF fusion
-                                                                                 -> relevance filter -> top N
+    query -> normalise -> [metadata filters] -> embed
+          ─┬─> vector search (pgvector HNSW, cosine) ─┐
+           └─> keyword search (Postgres full text)   ─┴─> RRF fusion
+          -> relevance filter -> near-duplicate removal -> top N
 
 Every search is scoped to the requesting user's own knowledge bases. Results
 carry the per-retriever scores and ranks, and the result carries per-stage
@@ -14,12 +15,14 @@ import time
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import StrEnum
 
 from sqlalchemy import ARRAY, Uuid, bindparam, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Document, DocumentChunk
+from app.models import Document, DocumentChunk, DocumentStatus
+from app.rag.context import deduplicate
 from app.rag.embeddings import EmbeddingProvider, embed_query_cached
 
 logger = logging.getLogger(__name__)
@@ -34,6 +37,20 @@ class SearchMode(StrEnum):
     HYBRID = "hybrid"
     VECTOR = "vector"
     KEYWORD = "keyword"
+
+
+@dataclass(frozen=True, slots=True)
+class RetrievalFilters:
+    """Restrict a search to some of the knowledge bases' documents. Empty fields don't filter."""
+
+    document_ids: tuple[uuid.UUID, ...] = ()
+    extensions: tuple[str, ...] = ()  # e.g. (".pdf", ".md")
+    uploaded_after: datetime | None = None
+    uploaded_before: datetime | None = None
+
+    @property
+    def active(self) -> bool:
+        return bool(self.document_ids or self.extensions or self.uploaded_after or self.uploaded_before)
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,6 +78,9 @@ class RetrievalResult:
     vector_candidates: int = 0
     keyword_candidates: int = 0
     filtered_out: int = 0
+    duplicates_removed: int = 0
+    # With metadata filters: how many documents matched them (None: no filters).
+    filter_documents: int | None = None
     embedding_cached: bool = False
     timings_ms: dict[str, float] = field(default_factory=dict)
 
@@ -84,7 +104,12 @@ def _ms(started: float) -> float:
 
 
 async def _vector_search(
-    db: AsyncSession, user_id: uuid.UUID, kb_ids: Sequence[uuid.UUID], query_vector: list[float], limit: int
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    kb_ids: Sequence[uuid.UUID],
+    query_vector: list[float],
+    limit: int,
+    document_ids: Sequence[uuid.UUID] | None = None,
 ) -> list[tuple[uuid.UUID, float]]:
     # ef_search must be >= LIMIT for HNSW to return enough rows; iterative scans (pgvector >= 0.8)
     # keep searching the graph when the knowledge-base filter discards candidates.
@@ -92,12 +117,12 @@ async def _vector_search(
     await db.execute(text(f"SET LOCAL hnsw.ef_search = {int(max(40, limit * 2))}"))
     await db.execute(text("SET LOCAL hnsw.iterative_scan = relaxed_order"))
     distance = DocumentChunk.embedding.cosine_distance(query_vector)
-    rows = await db.execute(
-        select(DocumentChunk.id, distance.label("distance"))
-        .where(DocumentChunk.user_id == user_id, DocumentChunk.knowledge_base_id.in_(kb_ids))
-        .order_by(distance)
-        .limit(limit)
+    query = select(DocumentChunk.id, distance.label("distance")).where(
+        DocumentChunk.user_id == user_id, DocumentChunk.knowledge_base_id.in_(kb_ids)
     )
+    if document_ids is not None:
+        query = query.where(DocumentChunk.document_id.in_(document_ids))
+    rows = await db.execute(query.order_by(distance).limit(limit))
     # relaxed_order may return slightly out-of-order rows; re-sort exactly.
     return sorted(((row.id, 1.0 - row.distance) for row in rows), key=lambda item: -item[1])
 
@@ -110,8 +135,7 @@ async def _vector_search(
 # ts_rank_cd has no IDF, so a common query word can outrank a rare decisive one. BM25-style
 # IDF weighting was tried and measured worse overall (evaluation/results/
 # experiment-idf-keyword-ranking.md); hybrid fusion with vector search covers these cases.
-_KEYWORD_SQL = text(
-    """
+_KEYWORD_SQL_TEMPLATE = """
     WITH q AS (
         SELECT to_tsquery('simple', coalesce(string_agg(quote_literal(lexeme), ' | '), '')) AS query
         FROM unnest(tsvector_to_array(to_tsvector('english', :query))) AS lexeme
@@ -120,20 +144,58 @@ _KEYWORD_SQL = text(
     FROM document_chunks AS c, q
     WHERE c.user_id = :user_id
       AND c.knowledge_base_id = ANY(:kb_ids)
+      {document_filter}
       AND c.content_tsv @@ q.query
     ORDER BY rank DESC, c.id
     LIMIT :limit
     """
-).bindparams(bindparam("kb_ids", type_=ARRAY(Uuid)), bindparam("user_id", type_=Uuid))
+_KEYWORD_SQL = text(_KEYWORD_SQL_TEMPLATE.format(document_filter="")).bindparams(
+    bindparam("kb_ids", type_=ARRAY(Uuid)), bindparam("user_id", type_=Uuid)
+)
+_KEYWORD_SQL_FILTERED = text(
+    _KEYWORD_SQL_TEMPLATE.format(document_filter="AND c.document_id = ANY(:document_ids)")
+).bindparams(
+    bindparam("kb_ids", type_=ARRAY(Uuid)),
+    bindparam("user_id", type_=Uuid),
+    bindparam("document_ids", type_=ARRAY(Uuid)),
+)
 
 
 async def _keyword_search(
-    db: AsyncSession, user_id: uuid.UUID, kb_ids: Sequence[uuid.UUID], query: str, limit: int
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    kb_ids: Sequence[uuid.UUID],
+    query: str,
+    limit: int,
+    document_ids: Sequence[uuid.UUID] | None = None,
 ) -> list[tuple[uuid.UUID, float]]:
-    rows = await db.execute(
-        _KEYWORD_SQL, {"query": query, "user_id": user_id, "kb_ids": list(kb_ids), "limit": limit}
-    )
+    params = {"query": query, "user_id": user_id, "kb_ids": list(kb_ids), "limit": limit}
+    if document_ids is None:
+        rows = await db.execute(_KEYWORD_SQL, params)
+    else:
+        rows = await db.execute(_KEYWORD_SQL_FILTERED, {**params, "document_ids": list(document_ids)})
     return [(row.id, float(row.rank)) for row in rows]
+
+
+async def _filtered_documents(
+    db: AsyncSession, user_id: uuid.UUID, kb_ids: Sequence[uuid.UUID], filters: RetrievalFilters
+) -> list[uuid.UUID]:
+    """The user's indexed documents in `kb_ids` that match the filters. IDs of other users'
+    documents simply match nothing."""
+    query = select(Document.id).where(
+        Document.user_id == user_id,
+        Document.knowledge_base_id.in_(kb_ids),
+        Document.status == DocumentStatus.COMPLETED,
+    )
+    if filters.document_ids:
+        query = query.where(Document.id.in_(filters.document_ids))
+    if filters.extensions:
+        query = query.where(Document.extension.in_([e.lower() for e in filters.extensions]))
+    if filters.uploaded_after is not None:
+        query = query.where(Document.created_at >= filters.uploaded_after)
+    if filters.uploaded_before is not None:
+        query = query.where(Document.created_at < filters.uploaded_before)
+    return list(await db.scalars(query))
 
 
 async def retrieve(
@@ -147,6 +209,8 @@ async def retrieve(
     limit: int,
     similarity_threshold: float,
     mode: SearchMode = SearchMode.HYBRID,
+    filters: RetrievalFilters | None = None,
+    dedup_threshold: float | None = None,
 ) -> RetrievalResult:
     """Return up to `limit` chunks relevant to `query`.
 
@@ -156,6 +220,10 @@ async def retrieve(
     relevant even when the embedding similarity is modest). Keyword-only mode
     applies no threshold.
 
+    `filters` restrict the search to matching documents (by ID, type or upload date) inside
+    both retrievers, before ranking. Near-duplicates (`dedup_threshold`) are removed before
+    the top `limit` are taken, so a duplicate never displaces a distinct passage.
+
     Callers must have verified that the user owns `knowledge_base_ids`; the user_id
     filter is applied again here as defence in depth.
     """
@@ -164,6 +232,16 @@ async def retrieve(
     result = RetrievalResult(query=query, mode=mode, chunks=[])
     if not query or not knowledge_base_ids:
         return result
+
+    document_ids: list[uuid.UUID] | None = None
+    if filters is not None and filters.active:
+        stage = time.perf_counter()
+        document_ids = await _filtered_documents(db, user_id, knowledge_base_ids, filters)
+        result.filter_documents = len(document_ids)
+        result.timings_ms["metadata_filter"] = _ms(stage)
+        if not document_ids:
+            result.timings_ms["total"] = _ms(started)
+            return result
 
     query_vector: list[float] | None = None
     vector_hits: list[tuple[uuid.UUID, float]] = []
@@ -175,12 +253,14 @@ async def retrieve(
         result.timings_ms["embedding"] = _ms(stage)
 
         stage = time.perf_counter()
-        vector_hits = await _vector_search(db, user_id, knowledge_base_ids, query_vector, candidates)
+        vector_hits = await _vector_search(
+            db, user_id, knowledge_base_ids, query_vector, candidates, document_ids
+        )
         result.timings_ms["vector_search"] = _ms(stage)
 
     if mode is not SearchMode.VECTOR:
         stage = time.perf_counter()
-        keyword_hits = await _keyword_search(db, user_id, knowledge_base_ids, query, candidates)
+        keyword_hits = await _keyword_search(db, user_id, knowledge_base_ids, query, candidates, document_ids)
         result.timings_ms["keyword_search"] = _ms(stage)
 
     result.vector_candidates, result.keyword_candidates = len(vector_hits), len(keyword_hits)
@@ -237,8 +317,11 @@ async def retrieve(
             )
         # Deterministic order: best score first, ties broken by document position.
         chunks.sort(key=lambda c: (-c.score, str(c.document_id), c.chunk_index))
-        result.chunks = chunks[:limit]
         result.timings_ms["fetch"] = _ms(stage)
+        stage = time.perf_counter()
+        chunks, result.duplicates_removed = deduplicate(chunks, dedup_threshold)
+        result.timings_ms["dedup"] = _ms(stage)
+        result.chunks = chunks[:limit]
 
     result.timings_ms["total"] = _ms(started)
     logger.info(
@@ -250,6 +333,8 @@ async def retrieve(
             "vector_candidates": result.vector_candidates,
             "keyword_candidates": result.keyword_candidates,
             "filtered_out": result.filtered_out,
+            "duplicates_removed": result.duplicates_removed,
+            "filter_documents": result.filter_documents,
             "returned": len(result.chunks),
             "top_similarity": max((c.similarity or 0.0 for c in result.chunks), default=None),
             **{f"{name}_ms": value for name, value in result.timings_ms.items()},

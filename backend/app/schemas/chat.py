@@ -5,6 +5,7 @@ from typing import Any
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.models import MessageRole
+from app.schemas.retrieval import SearchFilters
 
 MAX_MESSAGE_LENGTH = 2000
 
@@ -26,6 +27,9 @@ class ChatRequest(BaseModel):
         default_factory=list,
         max_length=20,
         description="Images uploaded via POST /images to send with this message",
+    )
+    filters: SearchFilters | None = Field(
+        default=None, description="Restrict this message's retrieval to some documents (this turn only)"
     )
 
     @field_validator("message")

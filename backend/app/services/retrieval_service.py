@@ -7,7 +7,7 @@ from app.core.config import get_settings
 from app.core.errors import NotFoundError
 from app.models import KnowledgeBase
 from app.rag import embeddings
-from app.rag.retrieval import RetrievalResult, SearchMode, retrieve
+from app.rag.retrieval import RetrievalFilters, RetrievalResult, SearchMode, retrieve
 from app.schemas.retrieval import SearchHit, SearchRequest, SearchResponse
 
 
@@ -34,6 +34,7 @@ async def search(
     *,
     mode: SearchMode = SearchMode.HYBRID,
     limit: int | None = None,
+    filters: RetrievalFilters | None = None,
 ) -> RetrievalResult:
     settings = get_settings()
     await ensure_knowledge_bases_owned(db, user_id, knowledge_base_ids)
@@ -47,12 +48,20 @@ async def search(
         limit=limit or settings.rerank_top_k,
         similarity_threshold=settings.similarity_threshold,
         mode=mode,
+        filters=filters,
+        dedup_threshold=settings.dedup_threshold,
     )
 
 
 async def search_request(db: AsyncSession, user_id: uuid.UUID, request: SearchRequest) -> SearchResponse:
     result = await search(
-        db, user_id, request.knowledge_base_ids, request.query, mode=request.mode, limit=request.limit
+        db,
+        user_id,
+        request.knowledge_base_ids,
+        request.query,
+        mode=request.mode,
+        limit=request.limit,
+        filters=request.filters.to_filters() if request.filters else None,
     )
     return SearchResponse(
         query=result.query,
@@ -61,6 +70,8 @@ async def search_request(db: AsyncSession, user_id: uuid.UUID, request: SearchRe
         vector_candidates=result.vector_candidates,
         keyword_candidates=result.keyword_candidates,
         filtered_out=result.filtered_out,
+        duplicates_removed=result.duplicates_removed,
+        filter_documents=result.filter_documents,
         similarity_threshold=get_settings().similarity_threshold,
         timings_ms=result.timings_ms,
     )

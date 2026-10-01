@@ -41,6 +41,7 @@ from app.evaluation.metrics import (
 )
 from app.llm.base import LLMError, LLMProvider
 from app.models import Document, DocumentChunk, DocumentStatus, KnowledgeBase, User
+from app.rag.context import select_context
 from app.rag.embeddings import EmbeddingProvider
 from app.rag.pipeline import AnswerType, answer_question
 from app.rag.reranking import RankedChunk, Reranker, rerank_or_fallback
@@ -257,11 +258,19 @@ async def evaluate_retrieval(
                 limit=settings.rerank_candidates if config.rerank else depth,
                 similarity_threshold=settings.similarity_threshold,
                 mode=config.mode,
+                dedup_threshold=settings.dedup_threshold,
             )
         if config.rerank:
-            ranked, _ = await rerank_or_fallback(
-                reranker, question.question, result.chunks, settings.rerank_top_k
+            # Exactly the production selection: rerank every candidate, then threshold/top-k/budget.
+            candidates, _ = await rerank_or_fallback(
+                reranker, question.question, result.chunks, len(result.chunks)
             )
+            ranked = select_context(
+                candidates,
+                top_k=settings.rerank_top_k,
+                min_rerank_score=settings.rerank_min_score,
+                max_chars=settings.context_max_chars,
+            ).passages
         else:
             ranked = [RankedChunk(chunk, None) for chunk in result.chunks[:depth]]
         latencies.append((time.perf_counter() - started) * 1000)

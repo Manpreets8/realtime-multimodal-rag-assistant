@@ -167,6 +167,15 @@ class Settings(BaseSettings):
     # --- RAG -------------------------------------------------------------
     top_k: int = Field(default=20, ge=1)
     rerank_top_k: int = Field(default=5, ge=1)
+    # Near-duplicate passages (3-word-shingle Jaccard >= this) are dropped before reranking,
+    # keeping the better-ranked copy. Empty/None disables.
+    dedup_threshold: float | None = Field(default=0.9, gt=0, le=1)
+    # Reranked passages scoring below this are not sent to the model. None (the default)
+    # disables it: measured on the evaluation set, no threshold removed noise without also
+    # removing relevant passages (see evaluation/results/experiment-rerank-threshold.md).
+    rerank_min_score: float | None = None
+    # Upper bound on the characters of context sent with a question (after RERANK_TOP_K).
+    context_max_chars: int = Field(default=12_000, ge=1_000, le=200_000)
     chunk_size: int = Field(default=1000, ge=100)
     chunk_overlap: int = Field(default=150, ge=0)
     # Minimum cosine similarity for a vector-only match. Model-specific: 0.5 was measured
@@ -258,6 +267,11 @@ class Settings(BaseSettings):
     @classmethod
     def _empty_dimensions_is_default(cls, value: object) -> object:
         return 0 if isinstance(value, str) and not value.strip() else value
+
+    @field_validator("dedup_threshold", "rerank_min_score", mode="before")
+    @classmethod
+    def _empty_means_off(cls, value: object) -> object:
+        return None if isinstance(value, str) and not value.strip() else value
 
     @model_validator(mode="after")
     def _apply_tts_defaults(self) -> "Settings":

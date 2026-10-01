@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.llm import factory as llm_factory
 from app.rag import embeddings, reranking
-from app.rag.pipeline import RagAnswer, answer_question
+from app.rag.pipeline import RagAnswer, answer_question, pipeline_stats
 from app.schemas.rag import (
     AnswerRequest,
     AnswerResponse,
@@ -36,6 +36,7 @@ async def answer(db: AsyncSession, user_id: uuid.UUID, request: AnswerRequest) -
         rerank_candidates=settings.rerank_candidates,
         top_k=settings.rerank_top_k,
         similarity_threshold=settings.similarity_threshold,
+        filters=request.filters.to_filters() if request.filters else None,
     )
     return to_response(result)
 
@@ -68,16 +69,8 @@ def to_response(result: RagAnswer) -> AnswerResponse:
         )
         for citation in result.citations
     ]
-    retrieval = (
-        RetrievalStats(
-            vector_candidates=result.retrieval.vector_candidates,
-            keyword_candidates=result.retrieval.keyword_candidates,
-            filtered_out=result.retrieval.filtered_out,
-            reranked=result.reranked,
-        )
-        if result.retrieval
-        else None
-    )
+    stats = pipeline_stats(result)
+    retrieval = RetrievalStats.model_validate(stats) if stats is not None else None
     return AnswerResponse(
         question=result.question,
         answer=result.answer,
