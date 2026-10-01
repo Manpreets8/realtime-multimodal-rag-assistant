@@ -6,7 +6,7 @@ Mindora AI is a real-time multimodal RAG assistant. Ask questions about your own
 
 Built as a full-stack, production-minded application: FastAPI and PostgreSQL/pgvector behind a React app, a Redis-backed worker for document processing, local models for embeddings, reranking, speech-to-text and text-to-speech, Claude for answers and image understanding, an evaluation harness, and a Docker setup that deploys with HTTPS.
 
-> **Status.** The original 17 build phases are complete, and the Mindora AI upgrade is in progress (phases 1–9 done). Everything described here is implemented and tested: **556 backend tests** and **173 frontend tests** (backend coverage was 94% when last measured, before the upgrade). The Claude integration is tested against the real SDK with recorded HTTP responses, and has been checked end to end with a real Anthropic API key. The quality of Claude's answers has **not been measured yet**: the answer-quality evaluation is built but has not been run. Retrieval quality has been measured (see [Evaluation](#14-evaluation)).
+> **Status.** The original 17 build phases are complete, and the Mindora AI upgrade is in progress (phases 1–10 done). Everything described here is implemented and tested: **562 backend tests** and **175 frontend tests** (backend coverage was 94% when last measured, before the upgrade). The Claude integration is tested against the real SDK with recorded HTTP responses, and has been checked end to end with a real Anthropic API key. Retrieval quality and answer quality (faithfulness, verified quotes, correct "not found" answers) have been measured with `claude-opus-5` on a small labelled dataset (see [Evaluation](#14-evaluation)).
 
 **Contents:**
 1. [Overview](#1-project-overview)
@@ -117,7 +117,7 @@ backend/
     workers/        Redis job queue, ingestion worker, maintenance
     evaluation/     evaluation dataset, metrics, LLM judge, runner, report
   alembic/          database migrations
-  tests/            556 tests (unit, integration against real PostgreSQL/Redis, real-model tests)
+  tests/            562 tests (unit, integration against real PostgreSQL/Redis, real-model tests)
   Dockerfile
 frontend/
   src/
@@ -314,7 +314,20 @@ Findings:
 - An IDF-weighted keyword ranking that looked like an obvious fix measured worse and was reverted.
 - Weighted score fusion (at alpha 0.3, 0.5 and 0.7) was never better than RRF, so RRF stays the default.
 
-The corpus is small and written for the evaluation, so these numbers compare strategies; they don't estimate accuracy on your documents. **Answer-level metrics have not been run**, because no API key was available.
+**Measured answers** (36 questions including 6 the documents can't answer, `claude-opus-5`):
+
+| Metric | Result |
+|---|---|
+| Fact recall (expected facts in the answer) | 100% |
+| Faithfulness (claims supported by the retrieved passages, LLM judge) | 100% |
+| Quotes verified (found word for word in the cited source) | 100% |
+| Evidence cited | 100% |
+| Correct abstention (unanswerable questions labelled "not found") | 100% (was 66.7%) |
+| Latency p50 | 5.4 s |
+
+Claude said "not in the knowledge base" correctly every time, but two such answers also cited related policy and were labelled "answered from your documents". A fixed opening sentence for these answers fixed the label ([experiment](evaluation/results/experiment-not-found-lead.md)).
+
+The corpus is small and written for the evaluation, so these numbers compare strategies and catch regressions; they don't estimate accuracy on your documents.
 
 Full details: [evaluation/README.md](evaluation/README.md).
 

@@ -44,6 +44,7 @@ from app.rag.prompts import (
     MULTIMODAL_SYSTEM_PROMPT,
     build_general_messages,
     build_grounded_messages,
+    states_not_found,
 )
 from app.rag.reranking import RankedChunk, Reranker, rerank_or_fallback
 from app.rag.retrieval import FusionMethod, RetrievalFilters, RetrievalResult, normalize_query, retrieve
@@ -322,8 +323,11 @@ async def answer_question(
     citation_check = check_citations(response.citations, citations, len(sources))
     if images:
         answer_type = AnswerType.MULTIMODAL if citations else AnswerType.IMAGE
+    elif not citations or states_not_found(response.text):
+        # Also "not found" when the model says so and then cites merely related information.
+        answer_type = AnswerType.NOT_FOUND
     else:
-        answer_type = AnswerType.KNOWLEDGE_BASE if citations else AnswerType.NOT_FOUND
+        answer_type = AnswerType.KNOWLEDGE_BASE
     timings["total"] = _ms(started)
     logger.info(
         "rag_completed",

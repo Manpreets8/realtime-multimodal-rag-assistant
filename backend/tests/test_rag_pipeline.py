@@ -16,6 +16,7 @@ from app.models import Document
 from app.rag import reranking
 from app.rag.context import deduplicate, select_context
 from app.rag.pipeline import check_citations, map_citations
+from app.rag.prompts import GROUNDED_SYSTEM_PROMPT, NOT_FOUND_LEAD, states_not_found
 from app.rag.reranking import RankedChunk, RerankError
 from app.rag.retrieval import RetrievedChunk
 from app.services.ingestion_service import process_document
@@ -328,3 +329,46 @@ async def test_chat_filters_apply_to_the_turn_and_stats_are_saved(
     assert assistant["retrieval"]["citation_check"]["verified_quotes"] == 1
     stored = (await client.get(f"{API}/conversations/{body['conversation']['id']}", headers=alice)).json()
     assert stored["messages"][1]["retrieval"]["context_passages"] == 1
+
+
+@pytest.mark.parametrize(
+    ("answer", "expected"),
+    [
+        ("The knowledge base doesn't contain this information. The closest is X.", True),
+        (
+            "**The knowledge base doesn\N{RIGHT SINGLE QUOTATION MARK}t contain this information.** X",
+            True,
+        ),
+        ("  the knowledge base doesn't contain  this information.", True),
+        (
+            "Employees get 18 days. The knowledge base doesn't contain this information about contractors.",
+            False,
+        ),
+        ("The knowledge base doesn't contain much, but: 18 days.", False),
+    ],
+)
+def test_states_not_found(answer: str, expected: bool) -> None:
+    assert states_not_found(answer) is expected
+
+
+async def test_not_found_lead_labels_the_answer_even_with_related_citations(
+    client: AsyncClient, alice: dict, library: dict, llm: ScriptedLLM
+) -> None:
+    llm.answer = f"{NOT_FOUND_LEAD} The closest policy: employees receive 18 days of annual leave."
+    llm.cite = [(0, "employees receive 18 days of paid annual leave each year")]
+
+    body = (
+        await client.post(
+            f"{API}/rag/answer",
+            json={
+                "question": "How many annual leave days do contractors get?",
+                "knowledge_base_ids": [library["kb"]],
+            },
+            headers=alice,
+        )
+    ).json()
+
+    assert body["answer_type"] == "not_found"
+    assert body["answer"].startswith(NOT_FOUND_LEAD)
+    assert len(body["citations"]) == 1  # the related information stays cited and clickable
+    assert llm.calls[0]["system"] == GROUNDED_SYSTEM_PROMPT and NOT_FOUND_LEAD in GROUNDED_SYSTEM_PROMPT

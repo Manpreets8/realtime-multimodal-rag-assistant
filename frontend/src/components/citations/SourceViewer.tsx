@@ -172,9 +172,11 @@ export function SourceViewer({ source, onClose }: { source: ViewedSource; onClos
               ))}
               {unlocated.length > 0 && (
                 <div>
-                  <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Quoted by the answer:</p>
+                  <p className="text-xs font-medium text-amber-800 dark:text-amber-300" data-testid="unverified-quotes">
+                    Cited text that could not be found word for word in this passage (unverified):
+                  </p>
                   {unlocated.map((quote) => (
-                    <blockquote key={quote.text} className="mt-1 border-l-2 border-slate-200 pl-3 text-xs text-slate-600 italic dark:border-slate-700 dark:text-slate-400">
+                    <blockquote key={quote.text} className="mt-1 border-l-2 border-amber-300 pl-3 text-xs text-slate-600 italic dark:border-amber-500/50 dark:text-slate-400">
                       “{quote.text}”
                     </blockquote>
                   ))}

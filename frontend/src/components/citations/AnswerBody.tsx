@@ -59,6 +59,38 @@ function locationOf(source: { page_number: number | null; section: string | null
   return source.page_number ? `Page ${source.page_number}` : source.section
 }
 
+/** The answer as plain text followed by its cited sources, e.g. for pasting into a document. */
+function answerWithSources(text: string, citations: AnswerBodyProps['citations'], heading = 'Sources'): string {
+  if (citations.length === 0) return text.trim()
+  const lines = citations.map((citation) => {
+    const location = locationOf(citation)
+    return `[${citation.source_number}] ${citation.filename}${location ? ` — ${location}` : ''}`
+  })
+  return `${text.trim()}\n\n${heading}:\n${lines.join('\n')}`
+}
+
+function CopyAnswerButton({ text }: { text: string }) {
+  const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle')
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setState('copied')
+    } catch {
+      setState('failed')
+    }
+    window.setTimeout(() => setState('idle'), 2000)
+  }
+  return (
+    <button
+      type="button"
+      onClick={copy}
+      className="rounded-md px-2 py-0.5 text-xs font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+    >
+      <span aria-live="polite">{state === 'copied' ? 'Copied' : state === 'failed' ? 'Copy failed' : 'Copy with sources'}</span>
+    </button>
+  )
+}
+
 function describeSource(source: AnswerBodySource | undefined): string {
   if (!source) return 'Unknown source'
   const location = locationOf(source)
@@ -71,6 +103,8 @@ export function AnswerBody(props: AnswerBodyProps) {
   const [viewing, setViewing] = useState<ViewedSource | null>(null)
   const close = useCallback(() => setViewing(null), [])
   const type = answerType ? ANSWER_TYPES[answerType] : undefined
+  // A "not found" answer may still cite related passages; they don't answer the question.
+  const sourcesHeading = answerType === 'not_found' ? 'Related sources' : 'Sources'
   const sourceByNumber = new Map(sources.map((source) => [source.number, source]))
   const citationByNumber = new Map(citations.map((citation) => [citation.source_number, citation]))
 
@@ -105,6 +139,7 @@ export function AnswerBody(props: AnswerBodyProps) {
         <div className="flex flex-wrap items-center gap-2">
           {type && <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${type.className}`}>{type.label}</span>}
           {text.trim() && <SpeakControls key={text} text={text} />}
+          {text.trim() && <CopyAnswerButton text={answerWithSources(text, citations, sourcesHeading)} />}
         </div>
       )}
       <CitedAnswer text={text} citations={citations} describe={(n) => describeSource(sourceByNumber.get(n))} onSelect={open} />
@@ -112,9 +147,12 @@ export function AnswerBody(props: AnswerBodyProps) {
 
       {citations.length > 0 && (
         <div className="border-t border-slate-100 pt-3 dark:border-slate-800">
-          <h3 className="text-xs font-semibold tracking-wide text-slate-500 uppercase dark:text-slate-400">Sources</h3>
-          <ol className="mt-2 space-y-1" aria-label="Cited sources">
-            {citations.map((citation) => (
+          <h3 className="text-xs font-semibold tracking-wide text-slate-500 uppercase dark:text-slate-400">{sourcesHeading}</h3>
+          <ol className="mt-2 space-y-1" aria-label={answerType === 'not_found' ? 'Related sources' : 'Cited sources'}>
+            {citations.map((citation) => {
+              // Only show a quote the app found word for word in the source.
+              const verified = citation.quotes.find((quote) => quote.start !== null)
+              return (
               <li key={citation.source_number}>
                 <button
                   type="button"
@@ -127,13 +165,14 @@ export function AnswerBody(props: AnswerBodyProps) {
                   <span className="min-w-0">
                     <span className="font-medium group-hover:underline">{citation.filename}</span>
                     {locationOf(citation) && <span className="text-slate-500 dark:text-slate-400"> — {locationOf(citation)}</span>}
-                    {citation.quotes[0] && (
-                      <span className="mt-0.5 block truncate text-xs text-slate-500 italic dark:text-slate-400">“{citation.quotes[0].text}”</span>
+                    {verified && (
+                      <span className="mt-0.5 block truncate text-xs text-slate-500 italic dark:text-slate-400">“{verified.text}”</span>
                     )}
                   </span>
                 </button>
               </li>
-            ))}
+              )
+            })}
           </ol>
         </div>
       )}

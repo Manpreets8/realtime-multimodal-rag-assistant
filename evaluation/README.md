@@ -90,6 +90,21 @@ The judge ([judge.py](../backend/app/evaluation/judge.py)) is Claude, forced to 
 
 ## Results
 
+### Answers: measured
+
+[results/experiment-not-found-lead.md](results/experiment-not-found-lead.md). Production pipeline (hybrid + rerank), `claude-opus-5` answering and judging, 36 questions:
+
+| Metric | Result |
+|---|---|
+| Fact recall (expected facts in the answer) | 100% |
+| Faithfulness (claims supported by the retrieved passages, LLM judge) | 100% |
+| Quotes verified (found word for word in the cited source) | 100% |
+| Evidence cited | 100% |
+| Correct abstention (unanswerable questions labelled "not found") | 100% (was 66.7%) |
+| Latency p50 | 5.4 s |
+
+The one change this run led to: answers to unanswerable questions now open with a fixed sentence, so the app labels them "not found" even when they cite related information (66.7% → 100% correct abstention, no answerable question affected).
+
 ### Retrieval: measured
 
 [results/baseline-retrieval.md](results/baseline-retrieval.md). Local `BAAI/bge-small-en-v1.5` embeddings, `ms-marco-MiniLM-L-6-v2` reranker, chunk size 1000/150, CPU. 30 answerable questions:

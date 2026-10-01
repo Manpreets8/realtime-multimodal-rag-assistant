@@ -1,6 +1,6 @@
 import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import type { AnswerResponse } from '../../services/rag'
 import { TEST_USER, errorEnvelope, json, mockFetch } from '../../test/mockFetch'
@@ -166,6 +166,7 @@ describe('Ask tab', () => {
     const cited = await within(viewer).findByTestId('cited-chunk')
     expect(cited.querySelector('mark')).toBeNull()
     expect(within(viewer).getByText('“Up to 5 unused days carry over”')).toBeInTheDocument()
+    expect(within(viewer).getByTestId('unverified-quotes')).toHaveTextContent('could not be found word for word')
     expect(within(viewer).queryByRole('button', { name: /Open/ })).not.toBeInTheDocument()
     expect(within(viewer).getByRole('button', { name: 'Download' })).toBeInTheDocument()
   })
@@ -205,5 +206,38 @@ describe('Ask tab', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Set LLM_API_KEY')
     expect(screen.getByRole('alert')).not.toHaveTextContent('ref ')
+  })
+
+  it('lists only verified quotes and copies the answer with its sources', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    backend(() => json(GROUNDED))
+    renderSignedIn('/knowledge-bases/kb-1?tab=ask')
+    await ask('How much annual leave?')
+
+    const cited = await screen.findByRole('list', { name: 'Cited sources' })
+    expect(cited).toHaveTextContent(`“${QUOTE}”`)
+    expect(cited).not.toHaveTextContent('Up to 5 unused days carry over') // never located in the source
+
+    await userEvent.click(screen.getByRole('button', { name: 'Copy with sources' }))
+    expect(writeText).toHaveBeenCalledWith(
+      `${ANSWER_TEXT}
+
+Sources:
+[1] handbook.pdf — Page 2
+[2] policy.docx — Leave > Carry over`,
+    )
+    expect(await screen.findByRole('button', { name: 'Copied' })).toBeInTheDocument()
+  })
+
+  it('calls cited passages "related sources" when the answer was not found', async () => {
+    const lead = "The knowledge base doesn't contain this information."
+    backend(() => json({ ...GROUNDED, answer: `${lead} ${ANSWER_TEXT}`, answer_type: 'not_found' }))
+    renderSignedIn('/knowledge-bases/kb-1?tab=ask')
+    await ask('What is the stock option vesting schedule?')
+
+    expect(await screen.findByText('Not found in the knowledge base')).toBeInTheDocument()
+    expect(screen.getByRole('list', { name: 'Related sources' })).toHaveTextContent('handbook.pdf — Page 2')
+    expect(screen.queryByRole('list', { name: 'Cited sources' })).not.toBeInTheDocument()
   })
 })
