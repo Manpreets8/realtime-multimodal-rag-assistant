@@ -157,9 +157,11 @@ class LLMProvider(Protocol):
         max_tokens: int | None = None,
         effort: str | None = None,
         stream: TextStream | None = None,
+        json_schema: dict[str, Any] | None = None,
     ) -> LLMResponse:
         """`max_tokens` / `effort` override the provider defaults for this call (`effort` is a
         reasoning-depth hint: low, medium or high; providers without one ignore it). With
         `stream`, text is forwarded as it is generated; the returned response is still the
-        complete, authoritative answer."""
+        complete, authoritative answer. With `json_schema`, the answer text is JSON matching
+        that schema (callers still validate it); it cannot be combined with citable sources."""
         ...

@@ -165,11 +165,18 @@ class ClaudeClient:
         max_tokens: int | None = None,
         effort: str | None = None,
         stream: TextStream | None = None,
+        json_schema: dict[str, Any] | None = None,
     ) -> LLMResponse:
         options: dict[str, Any] = {}
+        output_config: dict[str, Any] = {}
         effort = self._effort if effort is None else effort
         if effort:
-            options["output_config"] = {"effort": effort}
+            output_config["effort"] = effort
+        if json_schema is not None:
+            # Structured outputs: the response text is guaranteed to be JSON valid for the schema.
+            output_config["format"] = {"type": "json_schema", "schema": json_schema}
+        if output_config:
+            options["output_config"] = output_config
         if self._refusal_fallback:
             options["betas"] = [REFUSAL_FALLBACK_BETA]
             options["fallbacks"] = "default"

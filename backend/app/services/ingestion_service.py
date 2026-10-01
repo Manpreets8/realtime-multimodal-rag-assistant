@@ -16,6 +16,7 @@ from sqlalchemy import delete, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.concurrency import run_in_threadpool
 
+from app.core import redis as redis_client
 from app.core.config import get_settings
 from app.core.errors import ConflictError
 from app.db.session import SessionLocal
@@ -24,9 +25,10 @@ from app.rag import embeddings
 from app.rag.chunking import chunk_document
 from app.rag.embeddings import EmbeddingError
 from app.rag.extraction import ExtractedDocument, ExtractionError, extract_text
-from app.services import ingestion_progress
+from app.services import ingestion_progress, insights_service
 from app.services.ingestion_progress import IngestionStage
 from app.services.storage import LocalFileStorage, get_storage
+from app.workers.job_queue import JobQueue
 
 logger = logging.getLogger(__name__)
 
@@ -84,9 +86,13 @@ async def process_document(
     storage = storage or get_storage()
 
     try:
-        return await _process(document_id, session_factory, storage)
+        status = await _process(document_id, session_factory, storage)
     finally:
         await ingestion_progress.clear(document_id)
+    if status is DocumentStatus.COMPLETED and get_settings().document_insights_auto:
+        async with session_factory() as db:
+            await insights_service.request_automatically(db, JobQueue(redis_client.get_redis()), document_id)
+    return status
 
 
 async def _process(

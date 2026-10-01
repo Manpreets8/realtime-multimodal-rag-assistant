@@ -1,5 +1,6 @@
 import type { DocumentItem, IngestionProgress } from '../../services/documents'
 import { failureAdvice } from '../../utils/documentFailures'
+import { InsightsPanel } from './InsightsPanel'
 import { formatBytes } from '../../utils/format'
 
 // --- pipeline stages ----------------------------------------------------------------------
@@ -150,6 +151,12 @@ export function DocumentInsights({ document }: { document: DocumentItem }) {
           </p>
         )}
       </section>
+
+      {document.status === 'completed' && (
+        <div className="border-t border-slate-200 pt-5 lg:col-span-2 dark:border-slate-800">
+          <InsightsPanel document={document} />
+        </div>
+      )}
     </div>
   )
 }

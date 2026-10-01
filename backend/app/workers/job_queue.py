@@ -1,4 +1,7 @@
-"""Ingestion job queue on a Redis Stream (the producer side, used by the API).
+"""Document job queue on a Redis Stream (the producer side, used by the API).
+
+Two kinds of job share the stream: `ingest` (extract, chunk, embed and index a document;
+the default when a job has no kind) and `insights` (generate a document's AI insights).
 
     API ──XADD──► rag:jobs:ingestion ──XREADGROUP──► worker processes (consumer group)
 
@@ -34,14 +37,21 @@ STREAM_MAX_LENGTH = 100_000
 QUEUED_MARKER_TTL_SECONDS = 6 * 3600
 
 
+INGEST = "ingest"
+INSIGHTS = "insights"
+
+
 def queued_marker(document_id: uuid.UUID) -> str:
     """Set while a job for the document is waiting, so the sweep doesn't queue it again."""
     return redis_key("ingestion", "queued", str(document_id))
 
 
-def processing_lock(document_id: uuid.UUID) -> str:
-    """Held by the worker processing the document; prevents two workers processing it at once."""
-    return redis_key("ingestion", "lock", str(document_id))
+def processing_lock(document_id: uuid.UUID, kind: str = INGEST) -> str:
+    """Held by the worker running a job of `kind` for the document; prevents two workers
+    running the same kind of job for one document at once."""
+    if kind == INGEST:
+        return redis_key("ingestion", "lock", str(document_id))
+    return redis_key(kind, "lock", str(document_id))
 
 
 WORKER_HEARTBEAT_PREFIX = redis_key("workers", "ingestion") + ":"
@@ -73,6 +83,21 @@ class JobQueue:
             logger.warning("ingestion_enqueue_failed", extra={"document_id": str(document_id)}, exc_info=True)
             return False
         logger.info("ingestion_enqueued", extra={"document_id": str(document_id), "job_id": job_id.decode()})
+        return True
+
+    async def enqueue_insights(self, document_id: uuid.UUID) -> bool:
+        """Queue AI insight generation. Returns False (and logs) if Redis is unreachable."""
+        try:
+            job_id = await self._redis.xadd(
+                STREAM,
+                {"document_id": str(document_id), "kind": INSIGHTS},
+                maxlen=STREAM_MAX_LENGTH,
+                approximate=True,
+            )
+        except RedisError:
+            logger.warning("insights_enqueue_failed", extra={"document_id": str(document_id)}, exc_info=True)
+            return False
+        logger.info("insights_enqueued", extra={"document_id": str(document_id), "job_id": job_id.decode()})
         return True
 
     async def stats(self) -> QueueStats:

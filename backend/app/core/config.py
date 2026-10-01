@@ -143,6 +143,16 @@ class Settings(BaseSettings):
     # Images uploaded but never sent in a message are deleted after this long.
     orphan_image_ttl_hours: int = Field(default=24, ge=1, le=24 * 30)
 
+    # --- Document insights (AI summaries, key points, topics, entities) -------------
+    # Each generation costs LLM tokens, so by default insights are created when a user asks.
+    document_insights_auto: bool = False  # true: generate after every successful ingestion
+    insights_effort: Literal["low", "medium", "high"] = "low"
+    # Text per LLM call; longer documents are analysed in parts, then merged.
+    insights_chars_per_call: int = Field(default=60_000, ge=5_000, le=400_000)
+    # At most this many parts; beyond that an even sample of the document is analysed
+    # (the coverage is stored and shown).
+    insights_max_parts: int = Field(default=6, ge=1, le=50)
+
     # --- Rate limits ("<count>/<window>", window like 30s, 1m, 15m, 1h, 1d) --------
     rate_limit_enabled: bool = True
     rate_limit_login: str = "10/15m"  # per client IP + email

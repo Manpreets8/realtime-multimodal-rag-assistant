@@ -134,6 +134,8 @@ ID_ROUTE_BODIES: dict[tuple[str, str], dict] = {
     ("POST", "/api/v1/documents/{document_id}/reprocess"): {},
     ("GET", "/api/v1/documents/{document_id}/chunks"): {},
     ("GET", "/api/v1/documents/{document_id}/download"): {},
+    ("GET", "/api/v1/documents/{document_id}/insights"): {},
+    ("POST", "/api/v1/documents/{document_id}/insights"): {},
     ("GET", "/api/v1/chunks/{chunk_id}"): {},
     ("GET", "/api/v1/conversations/{conversation_id}"): {},
     ("PATCH", "/api/v1/conversations/{conversation_id}"): {"json": {"title": "Stolen"}},

@@ -68,6 +68,26 @@ Endpoints added in this phase: `POST /documents/{id}/reprocess` (retry a failed 
 
 **Licence note.** PyMuPDF is AGPL-3.0 licensed. That's fine for an open-source project; a closed-source deployment needs a commercial PyMuPDF licence or a different PDF parser.
 
+## Document insights
+
+For each processed document the app can generate, on request, a **short, detailed and technical summary**, **key points**, **topics**, **keywords** and **named entities** (people, organizations, locations, products, technologies, dates), shown in the document's Details panel alongside its statistics (pages, words, reading time, sections, passages). Implementation: [insights_service.py](../backend/app/services/insights_service.py).
+
+```
+POST /documents/{id}/insights ─► row: pending ─► job queue (kind=insights) ─► worker
+     ─► passages in order ─► 1 LLM call, or N part calls + 1 merge call ─► validate ─► ground ─► ready
+```
+
+| Decision | Why |
+|---|---|
+| **On request, in the background worker** | Each generation costs LLM tokens, so it runs only when asked (`DOCUMENT_INSIGHTS_AUTO=true` generates after every upload). It runs as an `insights` job on the same Redis Stream as ingestion, with its own per-document lock, so a slow model call never blocks the API and a crashed worker's job is retried (and dead-lettered as a failed insight, never a failed document). |
+| **Structured outputs** | The LLM interface takes a JSON schema (`json_schema`); the Claude provider sends it as `output_config.format`, so the response is valid JSON for the schema. It is still validated with Pydantic and cleaned (whitespace, duplicates, length and count limits). |
+| **The model states the language first** | A `language` field comes first in the schema and the prompt ties every other field to it. Without it, a real run on an English document returned a Spanish analysis; with it, the analysis matches the document. |
+| **Grounding check** | Keywords and entity names are kept only if they occur in the text the model read; the number removed is stored and shown. Topics are labels and are not checked. |
+| **Long documents: map-reduce, then sampling** | Up to `INSIGHTS_CHARS_PER_CALL` characters go in one call. Longer documents are analysed in parts (in order) and the part analyses merged by a final call. Past `INSIGHTS_MAX_PARTS` parts, an even sample of passages across the document is analysed and the share actually read is stored as `coverage` and shown ("from 40% of the document"), never hidden. |
+| **Regeneration keeps the old insights visible** | A new request sets the row to `pending` without clearing the content; the panel says it is regenerating. A failed run keeps the previous content and records the tokens it spent. |
+
+Each generation's model, number of LLM calls, input and output tokens, coverage and time are stored with the insights and shown under them, and every call is also logged as an `ai_call` record ([providers.md](providers.md)).
+
 ## Retrieval
 
 `POST /api/v1/retrieval/search` with body `{"query", "knowledge_base_ids", "mode": "hybrid" | "vector" | "keyword", "limit"}` returns the chunks the RAG pipeline will use as context. Each hit includes its document, page and section, cosine similarity, keyword rank and fused score, and the response includes per-stage timings. In the UI this is the **Search** tab of a knowledge base.

@@ -15,8 +15,10 @@ Reliability:
 - **One worker per document.** A per-document lock (SET NX, refreshed with the
   heartbeat) stops a duplicate job from processing the same document concurrently.
 - **Poison jobs.** A job delivered more than INGESTION_MAX_DELIVERIES times (it keeps
-  killing its worker) is moved to a dead-letter stream and the document marked failed,
-  instead of crashing workers forever.
+  killing its worker) is moved to a dead-letter stream and the document (or, for an
+  insights job, its insights) marked failed, instead of crashing workers forever.
+- **Job kinds.** `ingest` jobs (the default) process documents; `insights` jobs generate a
+  document's AI insights. Each kind has its own per-document lock.
 - **Graceful shutdown.** On Ctrl+C / SIGTERM the worker stops taking jobs and finishes
   the ones it has (up to a grace period); anything unfinished is picked up by another
   worker or after restart.
@@ -44,11 +46,14 @@ from app.core.redis import create_redis
 from app.db.session import SessionLocal, engine
 from app.models import Document, DocumentStatus
 from app.rag.embeddings import get_embedding_provider
+from app.services import insights_service
 from app.services.ingestion_service import process_document
 from app.workers import maintenance
 from app.workers.job_queue import (
     DEAD_LETTER_STREAM,
     GROUP,
+    INGEST,
+    INSIGHTS,
     STREAM,
     WORKER_HEARTBEAT_PREFIX,
     processing_lock,
@@ -82,6 +87,7 @@ class IngestionWorker:
         redis: Redis,
         processor: Processor = process_document,
         *,
+        insights_processor: Processor = insights_service.generate,
         concurrency: int | None = None,
         job_timeout_seconds: float | None = None,
         max_deliveries: int | None = None,
@@ -92,7 +98,7 @@ class IngestionWorker:
     ) -> None:
         settings = get_settings()
         self._redis = redis
-        self._processor = processor
+        self._processors: dict[str, Processor] = {INGEST: processor, INSIGHTS: insights_processor}
         self._concurrency = concurrency or settings.ingestion_workers
         self._job_timeout_ms = int((job_timeout_seconds or settings.ingestion_job_timeout_seconds) * 1000)
         self._max_deliveries = max_deliveries or settings.ingestion_max_deliveries
@@ -218,33 +224,36 @@ class IngestionWorker:
     async def _handle(self, entry_id: str, fields: dict[bytes, bytes]) -> None:
         try:
             document_id = uuid.UUID(fields[b"document_id"].decode())
+            kind = fields.get(b"kind", INGEST.encode()).decode()
+            processor = self._processors[kind]
         except (KeyError, ValueError):
             logger.error("ingestion_job_invalid", extra={"job_id": entry_id})
             await self._finish(entry_id)
             return
-        log = {"document_id": str(document_id), "job_id": entry_id}
+        log = {"document_id": str(document_id), "job_id": entry_id, "kind": kind}
         request_id_ctx.set(f"job-{entry_id}")
 
         deliveries = await self._deliveries(entry_id)
         if deliveries > self._max_deliveries:
-            await self._dead_letter(entry_id, document_id, deliveries)
+            await self._dead_letter(entry_id, document_id, deliveries, kind)
             return
 
         token = self.consumer
-        lock = processing_lock(document_id)
+        lock = processing_lock(document_id, kind)
         if not await self._redis.set(lock, token, nx=True, px=self._job_timeout_ms):
             # Another worker is processing this document right now; this is a duplicate job.
             logger.info("ingestion_job_duplicate_skipped", extra=log)
             await self._finish(entry_id)
             return
-        await self._redis.delete(queued_marker(document_id))
+        if kind == INGEST:
+            await self._redis.delete(queued_marker(document_id))
 
         self._active[entry_id] = document_id
         job_over = asyncio.Event()
         keep_alive = asyncio.create_task(self._keep_alive(entry_id, lock, token, job_over))
         started = time.perf_counter()
         try:
-            await self._processor(document_id)
+            await processor(document_id)
         except Exception:
             # process_document records document failures itself; reaching here means the
             # database or storage was unavailable. Leave the job pending: it is retried after
@@ -283,10 +292,17 @@ class IngestionWorker:
             except RedisError:
                 logger.warning("ingestion_heartbeat_failed", extra={"job_id": entry_id}, exc_info=True)
 
-    async def _dead_letter(self, entry_id: str, document_id: uuid.UUID, deliveries: int) -> None:
+    async def _dead_letter(
+        self, entry_id: str, document_id: uuid.UUID, deliveries: int, kind: str = INGEST
+    ) -> None:
         logger.error(
             "ingestion_job_dead_lettered",
-            extra={"document_id": str(document_id), "job_id": entry_id, "deliveries": deliveries},
+            extra={
+                "document_id": str(document_id),
+                "job_id": entry_id,
+                "deliveries": deliveries,
+                "kind": kind,
+            },
         )
         await self._redis.xadd(
             DEAD_LETTER_STREAM,
@@ -294,11 +310,16 @@ class IngestionWorker:
                 "document_id": str(document_id),
                 "job_id": entry_id,
                 "deliveries": deliveries,
+                "kind": kind,
                 "at": time.time(),
             },
             maxlen=DEAD_LETTER_MAX_LENGTH,
             approximate=True,
         )
+        if kind == INSIGHTS:
+            await insights_service.fail_abandoned(document_id, deliveries - 1)
+            await self._finish(entry_id)
+            return
         async with SessionLocal() as db:
             await db.execute(
                 update(Document)

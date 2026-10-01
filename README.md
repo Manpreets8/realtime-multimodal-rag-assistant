@@ -6,7 +6,7 @@ Mindora AI is a real-time multimodal RAG assistant. Ask questions about your own
 
 Built as a full-stack, production-minded application: FastAPI and PostgreSQL/pgvector behind a React app, a Redis-backed worker for document processing, local models for embeddings, reranking, speech-to-text and text-to-speech, Claude for answers and image understanding, an evaluation harness, and a Docker setup that deploys with HTTPS.
 
-> **Status.** The original 17 build phases are complete, and the Mindora AI upgrade is in progress (phases 1–5 done). Everything described here is implemented and tested: **512 backend tests** and **159 frontend tests** (backend coverage was 94% when last measured, before the upgrade). The Claude integration is tested against the real SDK with recorded HTTP responses, and has been checked end to end with a real Anthropic API key. The quality of Claude's answers has **not been measured yet**: the answer-quality evaluation is built but has not been run. Retrieval quality has been measured (see [Evaluation](#14-evaluation)).
+> **Status.** The original 17 build phases are complete, and the Mindora AI upgrade is in progress (phases 1–6 done). Everything described here is implemented and tested: **526 backend tests** and **163 frontend tests** (backend coverage was 94% when last measured, before the upgrade). The Claude integration is tested against the real SDK with recorded HTTP responses, and has been checked end to end with a real Anthropic API key. The quality of Claude's answers has **not been measured yet**: the answer-quality evaluation is built but has not been run. Retrieval quality has been measured (see [Evaluation](#14-evaluation)).
 
 **Contents:**
 1. [Overview](#1-project-overview)
@@ -50,6 +50,7 @@ What makes it more than a demo:
 | **Accounts** | Registration, login, logout with server-side token revocation. Argon2 password hashing. User and admin roles: admins manage accounts (roles, disabling) but never see anyone's content. A welcome email on sign-up (any SMTP provider). Every resource is private to its owner |
 | **Knowledge bases** | Any number per user, each with its own documents and embeddings; a chat answers only from the one selected (tested end to end). Create, rename, delete, search by name or description, sort by activity, name or age, with per-base statistics (documents, passages, storage, chats). Upload PDF, DOCX, TXT and MD (validated by content, 25 MB). Download, re-process, live ingestion progress |
 | **Ingestion** | Validation, text and metadata extraction (title, author, date, word, section and table counts) with page and section tracking, cleaning, structure-aware chunking, local embeddings (or Voyage AI), indexed in pgvector. Runs in a separate worker process via Redis, with a live step indicator (extracting → chunking → embedding → indexing), per-stage timings, and failure codes that say whether Retry can help |
+| **Document insights** | On request (or automatically): short, detailed and technical summaries, key points, topics, keywords and named entities, generated in the background by the LLM with schema-constrained JSON. Keywords and entities not found in the document are removed; very long documents are analysed in parts and merged, with the coverage shown |
 | **Retrieval** | Hybrid search: pgvector HNSW plus PostgreSQL full text, fused with reciprocal rank fusion, then cross-encoder reranking. A search tab shows scores and timings |
 | **Answers** | Claude, grounded in the retrieved passages, with native citations. Follow-up questions are rewritten using the conversation. A general-chat mode works without documents |
 | **Citations** | Inline markers after the supported text. A source viewer highlights the quote in its passage; PDFs open at the cited page |
@@ -116,7 +117,7 @@ backend/
     workers/        Redis job queue, ingestion worker, maintenance
     evaluation/     evaluation dataset, metrics, LLM judge, runner, report
   alembic/          database migrations
-  tests/            512 tests (unit, integration against real PostgreSQL/Redis, real-model tests)
+  tests/            526 tests (unit, integration against real PostgreSQL/Redis, real-model tests)
   Dockerfile
 frontend/
   src/
@@ -250,7 +251,7 @@ Interactive OpenAPI docs are served at `/docs` (Swagger UI) and `/redoc`; the sc
 | Dashboard | `GET /dashboard` (totals, chat answers and tokens over 30 days, per-day counts, recent activity) |
 | Admin (administrators only) | `GET /admin/users` (search, counts), `PATCH /admin/users/{id}` (role, enable/disable) |
 | Knowledge bases | `POST /knowledge-bases`, `GET /knowledge-bases` (search, sort), `GET/PATCH/DELETE /knowledge-bases/{id}`, `GET /knowledge-bases/{id}/documents` |
-| Documents | `GET /documents` (all of yours, filter by status or filename), `POST /documents/upload`, `GET/DELETE /documents/{id}`, `POST /documents/{id}/reprocess`, `GET /documents/{id}/chunks`, `GET /documents/{id}/download`, `GET /chunks/{id}` |
+| Documents | `GET /documents` (all of yours, filter by status or filename), `POST /documents/upload`, `GET/POST /documents/{id}/insights` (AI insights), `GET/DELETE /documents/{id}`, `POST /documents/{id}/reprocess`, `GET /documents/{id}/chunks`, `GET /documents/{id}/download`, `GET /chunks/{id}` |
 | Retrieval and answers | `POST /retrieval/search` (hybrid, vector or keyword), `POST /rag/answer` |
 | Chat | `POST /chat`, `GET /conversations`, `GET/PATCH/DELETE /conversations/{id}`, `WS /ws/chat` (streaming; [protocol](docs/multimodal.md#real-time-streaming-websocket)) |
 | Images | `POST /images`, `GET /images/{id}/content`, `DELETE /images/{id}`, `POST /multimodal/image` |

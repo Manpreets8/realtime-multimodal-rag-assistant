@@ -5,7 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, File, Form, Query, Response, UploadFile, status
 from fastapi.responses import FileResponse
 
-from app.api.deps import CurrentUser, DbSession, Ingestion, Storage, UploadLimit
+from app.api.deps import ChatLimit, CurrentUser, DbSession, Ingestion, Storage, UploadLimit
 from app.core.config import get_settings
 from app.core.errors import NotFoundError
 from app.models import Document, DocumentChunk, DocumentStatus
@@ -16,7 +16,8 @@ from app.schemas.document import (
     SupportedFileType,
     UploadConfig,
 )
-from app.services import document_service, ingestion_service
+from app.schemas.insights import InsightRead
+from app.services import document_service, ingestion_service, insights_service
 from app.utils.files import SUPPORTED_FILE_TYPES
 
 logger = logging.getLogger(__name__)
@@ -153,3 +154,32 @@ async def delete_document(
 ) -> Response:
     await document_service.delete(db, storage, current_user.id, document_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get(
+    "/{document_id}/insights",
+    response_model=InsightRead,
+    responses=_NOT_FOUND,
+    summary="The document's AI insights: summaries, key points, topics, keywords and entities",
+)
+async def get_insights(document_id: uuid.UUID, db: DbSession, current_user: CurrentUser) -> InsightRead:
+    return await insights_service.get(db, current_user.id, document_id)
+
+
+@router.post(
+    "/{document_id}/insights",
+    response_model=InsightRead,
+    status_code=status.HTTP_202_ACCEPTED,
+    responses={
+        **_NOT_FOUND,
+        409: {"description": "Not processed yet, or insights already being generated"},
+        429: {"description": "AI request rate limit exceeded (see Retry-After)"},
+        503: {"description": "The AI model is not configured"},
+    },
+    summary="Generate (or regenerate) the document's AI insights in the background",
+)
+async def generate_insights(
+    document_id: uuid.UUID, db: DbSession, queue: Ingestion, current_user: CurrentUser, _: ChatLimit
+) -> InsightRead:
+    """Uses the AI model (and its token costs). Returns `pending`; poll `GET .../insights`."""
+    return await insights_service.request(db, queue, current_user.id, document_id)

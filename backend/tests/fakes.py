@@ -49,10 +49,17 @@ class RecordingQueue:
 
     def __init__(self) -> None:
         self.enqueued: list[uuid.UUID] = []
+        self.insights: list[uuid.UUID] = []
+        self.available = True  # False: behave like an unreachable Redis
 
     async def enqueue(self, document_id: uuid.UUID) -> bool:
         self.enqueued.append(document_id)
         return True
+
+    async def enqueue_insights(self, document_id: uuid.UUID) -> bool:
+        if self.available:
+            self.insights.append(document_id)
+        return self.available
 
 
 class ScriptedLLM:
@@ -72,6 +79,7 @@ class ScriptedLLM:
         self.cite: list[tuple[int, str]] = []
         self.fail_with: Exception | None = None
         self.rewrite = "rewritten standalone query"
+        self.json_answers: list[str] = []  # answers to structured (json_schema) calls, in order
         self.rewrite_fail_with: Exception | None = None
         # Streaming: text streamed and then discarded, as when a model declines mid-stream.
         self.declined_prefix: str | None = None
@@ -92,10 +100,25 @@ class ScriptedLLM:
     def rewrite_calls(self) -> list[dict]:
         return [call for call in self.calls if self._is_rewrite(call)]
 
-    async def generate(self, *, system: str, messages, max_tokens=None, effort=None, stream=None):
+    async def generate(
+        self, *, system: str, messages, max_tokens=None, effort=None, stream=None, json_schema=None
+    ):
         from app.llm.base import CitationSpan, LLMResponse
 
-        call = {"system": system, "messages": list(messages), "max_tokens": max_tokens, "effort": effort}
+        call = {
+            "system": system,
+            "messages": list(messages),
+            "max_tokens": max_tokens,
+            "effort": effort,
+            "json_schema": json_schema,
+        }
+        if json_schema is not None and self.json_answers:
+            # Structured calls (document insights) take their scripted answers in order.
+            if self.fail_with:
+                raise self.fail_with
+            self.calls.append(call)
+            text = self.json_answers.pop(0)
+            return LLMResponse(text, [], self.model_name, "end_turn", 2000, 300, 1.0)
         self.calls.append(call)
         if self._is_rewrite(call):
             if self.rewrite_fail_with:
