@@ -9,6 +9,7 @@ from app.api.deps import ChatLimit, CurrentUser, DbSession, Ingestion, Storage, 
 from app.core.config import get_settings
 from app.core.errors import NotFoundError
 from app.models import Document, DocumentChunk, DocumentStatus
+from app.schemas.comparison import CompareRequest, CompareResponse
 from app.schemas.document import (
     DocumentChunkRead,
     DocumentPage,
@@ -17,7 +18,7 @@ from app.schemas.document import (
     UploadConfig,
 )
 from app.schemas.insights import InsightRead
-from app.services import document_service, ingestion_service, insights_service
+from app.services import comparison_service, document_service, ingestion_service, insights_service
 from app.utils.files import SUPPORTED_FILE_TYPES
 
 logger = logging.getLogger(__name__)
@@ -45,6 +46,26 @@ async def list_documents(
 
 
 # Declared before "/{document_id}" so the literal path is matched first.
+@router.post(
+    "/compare",
+    response_model=CompareResponse,
+    summary="Compare two documents: exact text differences and a cited AI analysis",
+    responses={
+        **_NOT_FOUND,
+        409: {"description": "A document is not indexed (still processing or failed)"},
+        422: {"description": "Invalid request, e.g. the same document twice"},
+        429: {"description": "Rate limit for AI requests exceeded"},
+    },
+)
+async def compare_documents(
+    request: CompareRequest, db: DbSession, current_user: CurrentUser, _: ChatLimit
+) -> CompareResponse:
+    """Sentences added, removed, modified and in common (computed, no AI), plus, when an AI
+    model is configured, an analysis in six sections citing both documents. If the AI call
+    fails, the text differences are still returned with `analysis_unavailable` explaining why."""
+    return await comparison_service.compare(db, current_user.id, request)
+
+
 @router.get("/upload-config", response_model=UploadConfig, summary="Upload limits and supported file types")
 async def upload_config(current_user: CurrentUser) -> UploadConfig:
     return UploadConfig(

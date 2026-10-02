@@ -206,6 +206,10 @@ class Settings(BaseSettings):
     reranker_timeout_seconds: float = Field(default=30.0, gt=0)
     rerank_candidates: int = Field(default=20, ge=1, le=100)
 
+    # --- Document comparison ---------------------------------------------------
+    # Characters of each document sent to the LLM (passages with differences first).
+    compare_max_chars_per_document: int = Field(default=40_000, ge=2_000, le=200_000)
+
     # --- Chat --------------------------------------------------------------
     # Previous messages (user + assistant) sent with each new question.
     chat_history_messages: int = Field(default=10, ge=0, le=50)

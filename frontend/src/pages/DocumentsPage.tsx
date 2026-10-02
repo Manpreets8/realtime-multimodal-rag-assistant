@@ -92,11 +92,19 @@ export default function DocumentsPage() {
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8 sm:px-8 sm:py-10">
-      <header>
-        <h1 className="text-2xl font-semibold tracking-tight">Documents</h1>
-        <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-          Every document across your knowledge bases. Upload new files from a knowledge base.
-        </p>
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Documents</h1>
+          <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+            Every document across your knowledge bases. Upload new files from a knowledge base.
+          </p>
+        </div>
+        <Link
+          to="/documents/compare"
+          className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800"
+        >
+          Compare documents
+        </Link>
       </header>
 
       <div className="mt-6 flex flex-wrap items-center gap-3">

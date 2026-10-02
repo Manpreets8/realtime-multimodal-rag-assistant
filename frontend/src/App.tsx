@@ -7,6 +7,7 @@ import { RedirectIfAuthenticated, RequireAdmin, RequireAuth } from './components
 import { ToastProvider } from './components/ui/Toast'
 import { AuthProvider } from './contexts/AuthProvider'
 import AdminPage from './pages/AdminPage'
+import ComparePage from './pages/ComparePage'
 import ChatPage from './pages/ChatPage'
 import DashboardPage from './pages/DashboardPage'
 import DocumentsPage from './pages/DocumentsPage'
@@ -38,6 +39,7 @@ export default function App() {
                 <Route path="chat" element={<ChatPage />} />
                 <Route path="chat/:conversationId" element={<ChatPage />} />
                 <Route path="documents" element={<DocumentsPage />} />
+                <Route path="documents/compare" element={<ComparePage />} />
                 <Route path="search" element={<SearchPage />} />
                 <Route path="settings" element={<SettingsPage />} />
                 <Route element={<RequireAdmin />}>
