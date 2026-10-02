@@ -6,7 +6,7 @@ Mindora AI is a real-time multimodal RAG assistant. Ask questions about your own
 
 Built as a full-stack, production-minded application: FastAPI and PostgreSQL/pgvector behind a React app, a Redis-backed worker for document processing, local models for embeddings, reranking, speech-to-text and text-to-speech, Claude for answers and image understanding, an evaluation harness, and a Docker setup that deploys with HTTPS.
 
-> **Status.** The original 17 build phases are complete, and the Mindora AI upgrade is in progress (phases 1–10 done). Everything described here is implemented and tested: **562 backend tests** and **175 frontend tests** (backend coverage was 94% when last measured, before the upgrade). The Claude integration is tested against the real SDK with recorded HTTP responses, and has been checked end to end with a real Anthropic API key. Retrieval quality and answer quality (faithfulness, verified quotes, correct "not found" answers) have been measured with `claude-opus-5` on a small labelled dataset (see [Evaluation](#14-evaluation)).
+> **Status.** The original 17 build phases are complete, and the Mindora AI upgrade is in progress (phases 1–11 done). Everything described here is implemented and tested: **575 backend tests** and **180 frontend tests** (backend coverage was 94% when last measured, before the upgrade). The Claude integration is tested against the real SDK with recorded HTTP responses, and has been checked end to end with a real Anthropic API key. Retrieval quality and answer quality (faithfulness, verified quotes, correct "not found" answers) have been measured with `claude-opus-5` on a small labelled dataset (see [Evaluation](#14-evaluation)).
 
 **Contents:**
 1. [Overview](#1-project-overview)
@@ -53,6 +53,7 @@ What makes it more than a demo:
 | **Document insights** | On request (or automatically): short, detailed and technical summaries, key points, topics, keywords and named entities, generated in the background by the LLM with schema-constrained JSON. Keywords and entities not found in the document are removed; very long documents are analysed in parts and merged, with the coverage shown |
 | **Retrieval** | Metadata filters (documents, file types, dates), then hybrid search: pgvector HNSW plus PostgreSQL full text, fused with reciprocal rank fusion (weighted fusion selectable, measured worse), near-duplicate removal, reranking (local cross-encoder or Voyage API) and context selection. A search tab shows scores, filters and timings, with advanced settings to try other candidates, thresholds, fusion and reranking |
 | **Answers** | Claude, grounded in the retrieved passages, with native citations validated against the sources. Follow-up questions are rewritten using the conversation. Every answer shows how it was found, stage by stage. A general-chat mode works without documents |
+| **Search My Knowledge** | One search across all your knowledge bases (or one). Results are reranked and labelled High, Medium or Low relevance using score bands measured on the evaluation set; less relevant results are collapsed, and each opens in its document |
 | **Citations** | Inline markers after the supported text. A source viewer highlights the quote in its passage; PDFs open at the cited page |
 | **Chat** | Saved conversations with history. Streaming over a WebSocket with live stages ("Searching…", "Writing…") and Stop. Falls back to HTTP if WebSockets are blocked |
 | **Images** | Attach, paste or drop screenshots and photos. Answers from the image alone, or from the image combined with the knowledge base |
@@ -117,7 +118,7 @@ backend/
     workers/        Redis job queue, ingestion worker, maintenance
     evaluation/     evaluation dataset, metrics, LLM judge, runner, report
   alembic/          database migrations
-  tests/            562 tests (unit, integration against real PostgreSQL/Redis, real-model tests)
+  tests/            575 tests (unit, integration against real PostgreSQL/Redis, real-model tests)
   Dockerfile
 frontend/
   src/
@@ -252,7 +253,7 @@ Interactive OpenAPI docs are served at `/docs` (Swagger UI) and `/redoc`; the sc
 | Admin (administrators only) | `GET /admin/users` (search, counts), `PATCH /admin/users/{id}` (role, enable/disable) |
 | Knowledge bases | `POST /knowledge-bases`, `GET /knowledge-bases` (search, sort), `GET/PATCH/DELETE /knowledge-bases/{id}`, `GET /knowledge-bases/{id}/documents` |
 | Documents | `GET /documents` (all of yours, filter by status or filename), `POST /documents/upload`, `GET/POST /documents/{id}/insights` (AI insights), `GET/DELETE /documents/{id}`, `POST /documents/{id}/reprocess`, `GET /documents/{id}/chunks`, `GET /documents/{id}/download`, `GET /chunks/{id}` |
-| Retrieval and answers | `POST /retrieval/search` (hybrid, vector or keyword; optional filters and per-search options), `POST /rag/answer` |
+| Retrieval and answers | `POST /retrieval/search` (hybrid, vector or keyword; all your knowledge bases when none are given; optional filters and per-search options), `POST /rag/answer` |
 | Chat | `POST /chat`, `GET /conversations`, `GET/PATCH/DELETE /conversations/{id}`, `WS /ws/chat` (streaming; [protocol](docs/multimodal.md#real-time-streaming-websocket)) |
 | Images | `POST /images`, `GET /images/{id}/content`, `DELETE /images/{id}`, `POST /multimodal/image` |
 | Voice | `POST /voice/transcribe`, `POST /voice/synthesize` |

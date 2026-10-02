@@ -26,7 +26,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import ClassVar, Protocol, cast
+from typing import ClassVar, Literal, Protocol, cast
 
 import httpx
 from starlette.concurrency import run_in_threadpool
@@ -36,6 +36,26 @@ from app.core.config import RerankerProviderName, Settings, get_settings
 from app.rag.retrieval import RetrievedChunk
 
 logger = logging.getLogger(__name__)
+
+
+Relevance = Literal["high", "medium", "low"]
+
+# Score bands for a plain-language relevance label, per reranker model: (high from, medium from).
+# Calibrated on the evaluation set (510 reranked candidates, 33 containing the labelled answer):
+# every passage scoring >= 5 contained the answer (15/15), 54% of those between -5 and 5 did
+# (15/28) and under 1% of those below -5 did (3/467). See evaluation/results/relevance-bands.md.
+# Models without measured bands get no label rather than an invented one.
+RELEVANCE_BANDS: dict[str, tuple[float, float]] = {
+    "Xenova/ms-marco-MiniLM-L-6-v2": (5.0, -5.0),
+}
+
+
+def relevance_label(model_name: str, score: float | None) -> Relevance | None:
+    bands = RELEVANCE_BANDS.get(model_name)
+    if bands is None or score is None:
+        return None
+    high, medium = bands
+    return "high" if score >= high else "medium" if score >= medium else "low"
 
 
 class RerankError(Exception):

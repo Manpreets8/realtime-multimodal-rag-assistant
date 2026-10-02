@@ -11,6 +11,7 @@ timings, so a poor answer can be traced back to what retrieval returned.
 """
 
 import logging
+import re
 import time
 import uuid
 from collections.abc import Sequence
@@ -93,6 +94,31 @@ class RetrievalResult:
 def normalize_query(query: str) -> str:
     """Collapse whitespace and cap the length. Returns '' for a blank query."""
     return " ".join(query.split())[:MAX_QUERY_LENGTH]
+
+
+_VERB = r"(?:find|show|search|look|list|get|give|fetch|pull)(?:\s+(?:me|up|for|out))*\s+"
+_ALL = r"(?:all|every|any)(?:thing)?\s+"
+_SOURCES = (
+    r"(?:the\s+|my\s+)?"
+    r"(?:documents?|docs|passages?|results?|info(?:rmation)?|notes?|files?|content|material)\s+"
+)
+# A request word must come first, so a topic that merely starts with "for" or "on" is kept.
+_REQUEST_PHRASING = re.compile(
+    rf"""^(?:please\s+)?(?:(?:can|could|would)\s+you\s+)?
+    (?:{_VERB}(?:{_ALL})?(?:{_SOURCES})? | {_ALL}(?:{_SOURCES})? | {_SOURCES})
+    (?:(?:that\s+(?:is|are|mentions?)\s+)?(?:related|relating|relevant)\s+to|about|on|regarding|concerning|mentioning|for)\s+""",
+    re.IGNORECASE | re.VERBOSE,
+)
+
+
+def topic_of(query: str) -> str:
+    """The topic of a search phrased as a request: "Find everything related to YOLO object
+    detection" -> "YOLO object detection". The reranker scores how well a passage answers the
+    text it is given, and request phrasing drags scores down (measured: 7.91 -> 1.65 for the
+    same passage). Queries that aren't phrased as requests are returned unchanged."""
+    query = normalize_query(query)
+    topic = _REQUEST_PHRASING.sub("", query, count=1).rstrip(" ?.!")
+    return topic if topic and topic != query.rstrip(" ?.!") else query
 
 
 def reciprocal_rank_fusion(rankings: Sequence[Sequence[uuid.UUID]], k: int = RRF_K) -> dict[uuid.UUID, float]:

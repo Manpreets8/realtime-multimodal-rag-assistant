@@ -8,7 +8,7 @@ from app.core.config import get_settings
 from app.core.errors import NotFoundError
 from app.models import KnowledgeBase
 from app.rag import embeddings, reranking
-from app.rag.retrieval import FusionMethod, RetrievalFilters, RetrievalResult, SearchMode, retrieve
+from app.rag.retrieval import FusionMethod, RetrievalFilters, RetrievalResult, SearchMode, retrieve, topic_of
 from app.schemas.retrieval import SearchHit, SearchOptions, SearchParameters, SearchRequest, SearchResponse
 
 
@@ -39,8 +39,15 @@ async def search(
     options: SearchOptions | None = None,
 ) -> tuple[RetrievalResult, SearchParameters]:
     settings = get_settings()
-    await ensure_knowledge_bases_owned(db, user_id, knowledge_base_ids)
+    if knowledge_base_ids:
+        await ensure_knowledge_bases_owned(db, user_id, knowledge_base_ids)
+    else:  # all of the user's knowledge bases
+        knowledge_base_ids = list(
+            await db.scalars(select(KnowledgeBase.id).where(KnowledgeBase.user_id == user_id))
+        )
     options = options or SearchOptions()
+    if options.topic:
+        query = topic_of(query)
     parameters = SearchParameters(
         candidates=options.candidates or settings.top_k,
         limit=limit or settings.rerank_top_k,
@@ -98,7 +105,14 @@ async def search_request(db: AsyncSession, user_id: uuid.UUID, request: SearchRe
         timings["total"] = round(timings.pop("total", 0.0) + timings["rerank"], 2)
         reranker_name = reranker.model_name if applied else None
         hits = [
-            SearchHit.model_validate(item.chunk).model_copy(update={"rerank_score": item.rerank_score})
+            SearchHit.model_validate(item.chunk).model_copy(
+                update={
+                    "rerank_score": item.rerank_score,
+                    "relevance": reranking.relevance_label(reranker.model_name, item.rerank_score)
+                    if applied
+                    else None,
+                }
+            )
             for item in ranked
         ]
     else:

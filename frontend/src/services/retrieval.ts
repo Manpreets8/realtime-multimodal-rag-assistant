@@ -2,6 +2,7 @@ import { apiRequest } from './api'
 
 export type SearchMode = 'hybrid' | 'vector' | 'keyword'
 export type FusionMethod = 'rrf' | 'weighted'
+export type Relevance = 'high' | 'medium' | 'low'
 
 export interface SearchHit {
   chunk_id: string
@@ -17,6 +18,8 @@ export interface SearchHit {
   keyword_score: number | null
   vector_rank: number | null
   keyword_rank: number | null
+  /** Plain-language band of the rerank score; only for rerankers with measured bands. */
+  relevance?: Relevance | null
   /** The reranker's own score; only present when reranking was requested and succeeded. */
   rerank_score?: number | null
 }
@@ -41,6 +44,7 @@ export interface SearchResponse {
 
 export interface SearchRequest {
   query: string
+  /** Empty searches all of the user's knowledge bases. */
   knowledge_base_ids: string[]
   mode?: SearchMode
   limit?: number
@@ -55,6 +59,7 @@ export interface SearchOptions {
   fusion?: FusionMethod
   alpha?: number // weighted fusion: weight of semantic similarity, 0-1
   rerank?: boolean // re-score with the server's reranker, as chat answers do
+  topic?: boolean // drop request phrasing ("Find everything related to") before searching
 }
 
 export interface SearchParameters {

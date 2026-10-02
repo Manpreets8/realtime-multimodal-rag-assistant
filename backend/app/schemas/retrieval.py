@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -48,6 +49,10 @@ class SearchOptions(BaseModel):
     alpha: float | None = Field(
         default=None, ge=0.0, le=1.0, description="Weighted fusion: weight of similarity"
     )
+    topic: bool = Field(
+        default=False,
+        description="Treat the query as a topic: drop request phrasing such as 'Find everything related to'",
+    )
     rerank: bool = Field(
         default=False,
         description="Re-score the top RERANK_CANDIDATES with the configured reranker, as answers do",
@@ -68,7 +73,11 @@ class SearchParameters(BaseModel):
 
 class SearchRequest(BaseModel):
     query: str = Field(min_length=1, max_length=MAX_QUERY_LENGTH)
-    knowledge_base_ids: list[uuid.UUID] = Field(min_length=1, max_length=MAX_KNOWLEDGE_BASES_PER_SEARCH)
+    knowledge_base_ids: list[uuid.UUID] = Field(
+        default_factory=list,
+        max_length=MAX_KNOWLEDGE_BASES_PER_SEARCH,
+        description="Empty (the default) searches all of your knowledge bases",
+    )
     mode: SearchMode = SearchMode.HYBRID
     limit: int | None = Field(default=None, ge=1, le=50, description="Defaults to RERANK_TOP_K")
     filters: SearchFilters | None = None
@@ -103,6 +112,10 @@ class SearchHit(BaseModel):
     keyword_score: float | None
     vector_rank: int | None
     keyword_rank: int | None
+    relevance: Literal["high", "medium", "low"] | None = Field(
+        default=None,
+        description="Plain-language band of the rerank score, for rerankers with measured bands only",
+    )
     rerank_score: float | None = Field(
         default=None, description="Reranker relevance score; only when reranking was requested and succeeded"
     )

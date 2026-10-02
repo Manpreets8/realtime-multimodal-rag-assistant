@@ -15,6 +15,7 @@ import KnowledgeBasesPage from './pages/KnowledgeBasesPage'
 import LoginPage from './pages/LoginPage'
 import NotFoundPage from './pages/NotFoundPage'
 import RegisterPage from './pages/RegisterPage'
+import SearchPage from './pages/SearchPage'
 import SettingsPage from './pages/SettingsPage'
 
 /** Route tree. Wrapped in a router by main.tsx (BrowserRouter) or tests (MemoryRouter). */
@@ -37,6 +38,7 @@ export default function App() {
                 <Route path="chat" element={<ChatPage />} />
                 <Route path="chat/:conversationId" element={<ChatPage />} />
                 <Route path="documents" element={<DocumentsPage />} />
+                <Route path="search" element={<SearchPage />} />
                 <Route path="settings" element={<SettingsPage />} />
                 <Route element={<RequireAdmin />}>
                   <Route path="admin" element={<AdminPage />} />

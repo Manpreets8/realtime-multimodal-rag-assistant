@@ -5,7 +5,16 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.rag.retrieval import SearchMode, normalize_query, reciprocal_rank_fusion, retrieve, weighted_fusion
+from app.rag import reranking
+from app.rag.reranking import RankedChunk, relevance_label
+from app.rag.retrieval import (
+    SearchMode,
+    normalize_query,
+    reciprocal_rank_fusion,
+    retrieve,
+    topic_of,
+    weighted_fusion,
+)
 from app.services.ingestion_service import process_document
 from tests.conftest import RegisterFn, bearer
 from tests.fakes import HashingEmbeddingProvider
@@ -232,7 +241,6 @@ async def test_retrieve_filters_by_user_even_if_ownership_check_is_bypassed(
     "payload",
     [
         {"query": "   ", "knowledge_base_ids": ["00000000-0000-0000-0000-000000000001"]},
-        {"query": "ok", "knowledge_base_ids": []},
         {"query": "ok", "knowledge_base_ids": [str(uuid.uuid4()) for _ in range(11)]},
         {"query": "ok", "knowledge_base_ids": [str(uuid.uuid4())], "limit": 0},
         {"query": "ok", "knowledge_base_ids": [str(uuid.uuid4())], "mode": "fuzzy"},
@@ -341,3 +349,101 @@ async def test_invalid_search_options(client: AsyncClient, alice: dict, handbook
     )
 
     assert response.status_code == 422
+
+
+# --- search across all knowledge bases; relevance labels ----------------------------------------
+
+
+async def test_without_knowledge_bases_search_covers_all_of_mine_and_nobody_elses(
+    client: AsyncClient, alice: dict, bob: dict, handbook: str, low_threshold: None
+) -> None:
+    it_kb = await make_kb(
+        client, alice, "IT", {"vpn.txt": b"Annual VPN certificate renewal is in the portal."}
+    )
+    await make_kb(client, bob, "Bob's", {"bob.txt": b"Annual leave for Bob's team is 40 days."})
+
+    body = await search(client, alice, [], "annual leave days VPN", limit=10)
+
+    assert {hit["knowledge_base_id"] for hit in body["results"]} == {handbook, it_kb}
+    assert all("Bob" not in hit["content"] for hit in body["results"])
+
+
+async def test_a_user_without_knowledge_bases_gets_no_results(client: AsyncClient, bob: dict) -> None:
+    body = await search(client, bob, [], "anything")
+
+    assert body["results"] == []
+
+
+def test_relevance_label_uses_measured_bands_only() -> None:
+    model = "Xenova/ms-marco-MiniLM-L-6-v2"
+
+    assert [relevance_label(model, s) for s in (9.6, 5.0, 4.9, -5.0, -5.1)] == [
+        "high",
+        "high",
+        "medium",
+        "medium",
+        "low",
+    ]
+    assert relevance_label(model, None) is None
+    assert relevance_label("rerank-2.5", 0.9) is None  # no measured bands: no label
+
+
+RERANK_SCORES = {"leave.txt": 8.0, "remote.txt": 0.5, "errors.md": -9.0}
+
+
+class CalibratedReranker:
+    """Stands in for the local cross-encoder (same model name, so its bands apply)."""
+
+    model_name = "Xenova/ms-marco-MiniLM-L-6-v2"
+
+    async def rerank(self, query, chunks, top_k):
+        ranked = [RankedChunk(c, RERANK_SCORES[c.filename]) for c in chunks]
+        return sorted(ranked, key=lambda r: -r.rerank_score)[:top_k]
+
+
+async def test_reranked_search_labels_relevance(
+    client: AsyncClient, alice: dict, handbook: str, low_threshold: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(reranking, "get_reranker", CalibratedReranker)
+
+    query = "annual leave remote work error"
+    plain = await search(client, alice, [], query, limit=10)
+    ranked = await search(client, alice, [], query, limit=10, options={"rerank": True})
+
+    assert all(hit["relevance"] is None for hit in plain["results"])
+    assert {hit["filename"]: hit["relevance"] for hit in ranked["results"]} == {
+        "leave.txt": "high",
+        "remote.txt": "medium",
+        "errors.md": "low",
+    }
+
+
+@pytest.mark.parametrize(
+    ("query", "topic"),
+    [
+        ("Find everything related to YOLO object detection", "YOLO object detection"),
+        ("Show me all documents about travel booking", "travel booking"),
+        ("Can you find anything regarding remote work?", "remote work"),
+        ("list all notes on budgets", "budgets"),
+        ("Everything about parental leave", "parental leave"),
+        # Not phrased as requests: unchanged.
+        ("What is the leave policy?", "What is the leave policy?"),
+        ("for loops in python", "for loops in python"),
+        ("Find the SEV2 response time", "Find the SEV2 response time"),
+        ("Show me", "Show me"),
+    ],
+)
+def test_topic_of_drops_request_phrasing_only(query: str, topic: str) -> None:
+    assert topic_of(query) == topic
+
+
+async def test_topic_option_searches_the_topic(
+    client: AsyncClient, alice: dict, handbook: str, low_threshold: None
+) -> None:
+    request = "Find everything related to annual leave"
+
+    as_typed = await search(client, alice, [], request)
+    as_topic = await search(client, alice, [], request, options={"topic": True})
+
+    assert (as_typed["query"], as_topic["query"]) == (request, "annual leave")
+    assert as_topic["results"][0]["filename"] == "leave.txt"
